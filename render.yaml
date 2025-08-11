@@ -1,7 +1,7 @@
 ##render.yaml
+
 services:
-  ##type: worker
-  type: web
+  - type: web
     name: telegram-bot
     env: python
     plan: free
