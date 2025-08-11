@@ -1,5 +1,7 @@
 # handlers/alerts_handler.py
 ##♦️merkezi telegram alert wrapper
+#alerts_handler.py → Telegram’a mesaj atmak gibi genel amaçlı uyarılar içindir
+
 
 import os
 from utils.monitoring import telegram_alert, configure_logging
