@@ -1,0 +1,24 @@
+# Python cache ve build dosyaları
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Çevre değişkenleri
+.env
+
+# IDE ayarları
+.vscode/
+.idea/
+
+# MacOS / Windows
+.DS_Store
+Thumbs.db
+
+# Log dosyaları
+*.log
+logs/
+
+# Veritabanı dosyaları (eğer commit edilmemesi gerekiyorsa)
+data/*.db
