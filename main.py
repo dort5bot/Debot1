@@ -100,3 +100,20 @@ if __name__ == "__main__":
     LOG.info("Starting bot. PAPER_MODE=%s", PAPER_MODE)
     start_all()
     loop.run_forever()
+
+
+
+###
+from telegram.ext import ApplicationBuilder, CommandHandler
+from handlers.apikey_handler import apikey_handler
+import os
+
+TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+
+app = ApplicationBuilder().token(TOKEN).build()
+
+# Komutlar
+app.add_handler(CommandHandler("apikey", apikey_handler))
+
+if __name__ == "__main__":
+    app.run_polling()
