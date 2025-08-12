@@ -4,6 +4,7 @@ import asyncio
 import os
 import logging
 from telegram.ext import ApplicationBuilder, CommandHandler
+from keep_alive import keep_alive
 
 from utils.db import init_db
 from utils.signal_evaluator import SignalEvaluator
@@ -111,6 +112,7 @@ app.add_handler(CommandHandler("etf", etf_handler))
 # Ana çalıştırma
 if __name__ == "__main__":
     LOG.info("Starting bot. PAPER_MODE=%s", PAPER_MODE)
+    keep_alive()  # Web sunucusunu aç
     start_all()
     loop.create_task(app.run_polling())
     loop.run_forever()
