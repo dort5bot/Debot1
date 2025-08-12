@@ -1,10 +1,15 @@
 #♦️bootmaster 
 # main.py
+# temel bölüm 
 import asyncio
 import os
 import logging
-from telegram.ext import ApplicationBuilder, CommandHandler
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from keep_alive import keep_alive
+
+
+#⏩⏩import bölümü 
 
 from utils.db import init_db
 from utils.signal_evaluator import SignalEvaluator
@@ -19,7 +24,6 @@ from handlers.apikey_handler import apikey_handler
 from strategies.rsi_macd_strategy import RSI_MACD_Strategy
 #🟧
 from handlers import funding_handler
-#
 from handlers.etf_handler import etf_handler
 
 #⏩ komut bolumu
