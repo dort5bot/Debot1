@@ -1,4 +1,6 @@
 # handlers/funding_handler.py
+## fonlama oranı 
+
 from utils import binance_api
 
 async def handle_funding_data(data):
