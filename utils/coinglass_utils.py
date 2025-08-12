@@ -66,18 +66,17 @@ PROVIDER_MAP = {
 }
 
 def get_etf_flow_history(asset: str):
-    """
-    BTC veya ETH ETF günlük akış verilerini getirir.
-    asset: 'bitcoin' veya 'ethereum'
-    """
     try:
         url = f"{BASE_URL}/etf/{asset}/flow-history"
         r = requests.get(url, headers=headers, timeout=10)
         r.raise_for_status()
-        return r.json().get("data", [])
+        data = r.json()
+        print(f"[DEBUG] ETF API Response for {asset}: {data}")  # <== Burada cevabı kontrol et
+        return data.get("data", [])
     except Exception as e:
         print(f"[Coinglass] {asset} ETF verisi alınamadı: {e}")
         return []
+
 
 def parse_etf_report(asset: str):
     """
