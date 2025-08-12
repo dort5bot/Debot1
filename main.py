@@ -98,10 +98,15 @@ def start_all():
     loop.create_task(kline_processor())
     LOG.info("Started streams for symbols: %s", STREAM_SYMBOLS)
 
-# Telegram bot
+
+# Telegram bot ✅🟥
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("apikey", apikey_handler))
+app.add_handler(CommandHandler("etf", etf_handler))
+
+
+
 
 # Ana çalıştırma
 if __name__ == "__main__":
