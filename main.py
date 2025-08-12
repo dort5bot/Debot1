@@ -18,6 +18,8 @@ from handlers import alerts_handler
 from handlers.apikey_handler import apikey_handler
 from strategies.rsi_macd_strategy import RSI_MACD_Strategy
 #🟧
+from handlers import funding_handler
+#
 from handlers.etf_handler import etf_handler
 
 
