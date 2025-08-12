@@ -1,71 +1,58 @@
 # handlers/funding_handler.py
 ###fonlama oranı binance 
-import asyncio
 from utils import binance_api
+from datetime import datetime
 
-async def funding_report(symbols=None):
+async def funding_report(symbols):
     """
-    Funding rate raporu üretir.
-    symbols: list[str] veya None
+    Seçilen coinler için funding oranlarını API'den alır ve rapor üretir.
     """
-    all_symbols = await binance_api.get_all_symbols()
+    try:
+        data = await binance_api.get_funding_rates(symbols)
+        if not data:
+            return "❌ Funding verisi alınamadı."
 
-    # Sadece USDT perpetual'lar
-    futures_symbols = [s for s in all_symbols if s.endswith("USDT")]
+        report_lines = ["📊 **Funding Oranları**\n"]
+        for item in data:
+            sym = item.get("symbol", "???")
+            rate = float(item.get("fundingRate", 0)) * 100
+            time_ms = item.get("fundingTime")
+            if time_ms:
+                time_str = datetime.fromtimestamp(time_ms / 1000).strftime("%Y-%m-%d %H:%M")
+            else:
+                time_str = "-"
+            color = "🟢" if rate > 0 else "🔴" if rate < 0 else "⚪"
+            report_lines.append(f"{color} {sym}: {rate:.4f}% ({time_str})")
 
-    if symbols:
-        # Kullanıcının yazdığı coinleri USDT ile tamamla
-        req_symbols = []
-        for sym in symbols:
-            s = sym.upper()
-            if not s.endswith("USDT"):
-                s += "USDT"
-            if s in futures_symbols:
-                req_symbols.append(s)
-        futures_symbols = req_symbols
+        return "\n".join(report_lines)
 
-    if not futures_symbols:
-        return "❌ Geçerli bir sembol bulunamadı."
+    except Exception as e:
+        return f"❌ Funding raporu hatası: {e}"
 
-    results = []
 
-    async def fetch_funding(sym):
-        try:
-            data = await binance_api.get_funding_rate(symbol=sym, limit=1)
-            if data and isinstance(data, list) and len(data) > 0:
-                rate = float(data[0]["fundingRate"]) * 100
-                return (sym, rate)
-        except:
-            return None
+async def handle_funding_data(data):
+    """
+    Stream veya periyodik polling ile gelen funding verilerini işler.
+    """
+    try:
+        # WebSocket fundingRate event formatı
+        if "s" in data and "r" in data:
+            symbol = data["s"]
+            rate = float(data["r"]) * 100
+            time_str = datetime.fromtimestamp(data["T"] / 1000).strftime("%Y-%m-%d %H:%M")
+            print(f"[WS] Funding Update: {symbol} → {rate:.4f}% @ {time_str}")
+            return
 
-    tasks = [fetch_funding(s) for s in futures_symbols]
-    fetched = await asyncio.gather(*tasks)
+        # REST veya polling formatı
+        if "symbol" in data and "fundingRate" in data:
+            symbol = data["symbol"]
+            rate = float(data["fundingRate"]) * 100
+            time_ms = data.get("fundingTime")
+            time_str = datetime.fromtimestamp(time_ms / 1000).strftime("%Y-%m-%d %H:%M") if time_ms else "-"
+            print(f"[API] Funding Update: {symbol} → {rate:.4f}% @ {time_str}")
+            return
 
-    for item in fetched:
-        if item:
-            results.append(item)
+        print("⚠️ Tanınmayan funding data formatı:", data)
 
-    if not results:
-        return "❌ Veri alınamadı."
-
-    # Rate'e göre sırala (mutlak değeri en yüksek olanlar başta)
-    results.sort(key=lambda x: abs(x[1]), reverse=True)
-
-    if not symbols:
-        # Sadece top 10 göster
-        results = results[:10]
-
-    # Ortalama funding
-    avg_rate = sum(r[1] for r in results) / len(results)
-
-    # Formatla
-    lines = []
-    for sym, rate in results:
-        arrow = "🔼" if rate > 0 else "🔻"
-        lines.append(f"{sym}: {rate:.3f}% {arrow}")
-
-    yorum = "Short yönlü baskı artıyor" if avg_rate < 0 else "Long yönlü baskı artıyor"
-
-    return f"📊 Funding Rate Raporu\n" + "\n".join(lines) + \
-           f"\n\nGenel Ortalama: {avg_rate:.3f}% {'🔻' if avg_rate < 0 else '🔼'}\nYorum: {yorum}"
-    
+    except Exception as e:
+        print(f"❌ handle_funding_data hata: {e}")
