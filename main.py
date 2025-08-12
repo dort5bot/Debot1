@@ -27,7 +27,7 @@ from handlers.etf_handler import etf_handler
 async def cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args if context.args else []
     report = await funding_handler.funding_report(symbols=args if args else None)
-    await update.message.reply_text(report
+    await update.message.reply_text(report)
 
 
 
