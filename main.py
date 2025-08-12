@@ -22,8 +22,17 @@ from handlers import funding_handler
 #
 from handlers.etf_handler import etf_handler
 
+#⏩ komut bolumu
+# /f komutu
+async def cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args if context.args else []
+    report = await funding_handler.funding_report(symbols=args if args else None)
+    await update.message.reply_text(report
 
 
+
+
+                                    
 # Logging ayarı
 configure_logging(logging.INFO)
 LOG = logging.getLogger("main")
@@ -102,20 +111,22 @@ def start_all():
     LOG.info("Started streams for symbols: %s", STREAM_SYMBOLS)
 
 
-# Telegram bot ✅🟥
+# Telegram bot(aplikasyon builder)✅🟥
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
 app.add_handler(CommandHandler("apikey", apikey_handler))
 app.add_handler(CommandHandler("etf", etf_handler))
+app.add_handler(CommandHandler(["f", "F"], cmd_funding))
 
 
 
 
-# Ana çalıştırma
+# ✅ Ana çalıştırma
 if __name__ == "__main__":
     LOG.info("Starting bot. PAPER_MODE=%s", PAPER_MODE)
     keep_alive()  # Web sunucusunu aç
     start_all()
     loop.create_task(app.run_polling())
     loop.run_forever()
+    #son. 🟥
     
