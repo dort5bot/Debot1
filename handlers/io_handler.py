@@ -3,6 +3,10 @@ import asyncio
 import logging
 from typing import Optional
 
+#➡️
+from telegram.ext import CommandHandler
+
+
 from utils.io_utils import (
     market_inout,
     symbol_inout,
@@ -16,6 +20,18 @@ LOG.addHandler(logging.NullHandler())
 COMMAND = "io"
 HELP = "/io [SYMBOL] — Emir defteri/taker analizi ile piyasa-alış satışı ve nakit göçü raporu.\n" \
        "Ör: /io  |  /io ETHUSDT"
+
+#♦️
+def register(application):
+    """
+    Plugin loader'ın çağıracağı fonksiyon.
+    """
+    handler_info = get_handler()
+    application.add_handler(CommandHandler(handler_info["command"], handler_info["callback"]))
+
+#♦️
+
+
 
 # --- MAIN Plugin Loader uyumlu arayüz ---
 def get_handler():
