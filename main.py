@@ -120,7 +120,7 @@ def start_all():
 # Telegram bot(aplikasyon builder)✅🟥
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
-application.add_handler(CommandHandler("api_c", api_check_command))
+app.add_handler(CommandHandler("api_c", api_check_command))
 app.add_handler(CommandHandler("apikey", apikey_handler))
 app.add_handler(CommandHandler("etf", etf_handler))
 app.add_handler(CommandHandler(["f", "F"], cmd_funding))
