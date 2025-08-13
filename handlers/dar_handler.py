@@ -119,5 +119,5 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # -------------------------------
 # Plugin loader uyumlu
-def register_handlers(app):
+def register(app):
     app.add_handler(CommandHandler("dar", dar_command))
