@@ -8,6 +8,8 @@ from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from keep_alive import keep_alive
 
+#api kontrol araci
+from handlers.api_check_handler import api_check_command
 
 #⏩⏩import bölümü 
 
@@ -118,6 +120,7 @@ def start_all():
 # Telegram bot(aplikasyon builder)✅🟥
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 app = ApplicationBuilder().token(TOKEN).build()
+application.add_handler(CommandHandler("api_c", api_check_command))
 app.add_handler(CommandHandler("apikey", apikey_handler))
 app.add_handler(CommandHandler("etf", etf_handler))
 app.add_handler(CommandHandler(["f", "F"], cmd_funding))
