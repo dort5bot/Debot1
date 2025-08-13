@@ -6,7 +6,7 @@ import os
 import zipfile
 from datetime import datetime
 from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
+from telegram.ext import ContextTypes, CommandHandler #p1/2 oto komut, plug1/2
 import re
 
 #--- plugin--- EN ALTTA 
@@ -81,7 +81,7 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(zip_filename, 'rb') as f:
         await update.message.reply_document(document=f)
 
-#--- plugin---
+#--- pg2/2 plugin 2/2---
 def register(application):
     """
     Plugin uyumlu register fonksiyonu.
