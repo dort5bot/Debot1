@@ -1,12 +1,18 @@
-#♦️dar_handler.py
-#/dar ve /dar L
-#
+# dar_handler.py
+# agac, içerik
+# /dar, /dar L 
+
 import os
 import zipfile
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 import re
+
+#--- plugin--- EN ALTTA 
+# Bu kısım plugin uyumlu hale getirildi.
+# register(application) fonksiyonu ile loader tarafından otomatik çağrılabilir.
+#--- 
 
 EXT_LANG_MAP = {
     '.py': 'Python',
@@ -75,5 +81,11 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(zip_filename, 'rb') as f:
         await update.message.reply_document(document=f)
 
-def register_handlers(app):
-    app.add_handler(CommandHandler("dar", dar_command))
+#--- plugin---
+def register(application):
+    """
+    Plugin uyumlu register fonksiyonu.
+    loader bu fonksiyonu çağırarak dar_command handler'ını ekler.
+    """
+    application.add_handler(CommandHandler("dar", dar_command))
+#---
