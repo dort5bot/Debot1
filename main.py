@@ -1,12 +1,10 @@
 #♦️bootmaster
-#plugin loader uyumlu
-#uyku önleme self-ping uyumlu 
-#.env icine ekle KEEPALIVE_URL=https://senin-render-app.onrender.com
+# plugin loader uyumlu
+# self-ping kaldırıldı, sadece keep_alive web server
 
 import asyncio
 import os
 import logging
-import aiohttp
 from telegram.ext import ApplicationBuilder
 from keep_alive import keep_alive
 
@@ -110,22 +108,6 @@ def start_all_services():
     LOG.info("Started streams for symbols: %s", STREAM_SYMBOLS)
 
 # -------------------------------
-# Self-ping keepalive sistemi
-async def self_ping():
-    url = os.getenv("KEEPALIVE_URL")  # Örn: https://senin-bot.onrender.com
-    if not url:
-        LOG.warning("KEEPALIVE_URL environment variable not set! Self-ping disabled.")
-        return
-    while True:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as resp:
-                    LOG.info(f"[KEEPALIVE] Ping sent to {url}, status={resp.status}")
-        except Exception as e:
-            LOG.error(f"[KEEPALIVE] Ping error: {e}")
-        await asyncio.sleep(300)  # 5 dakika
-
-# -------------------------------
 # Telegram bot
 TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 if not TOKEN:
@@ -141,8 +123,7 @@ load_handlers(application)
 # Ana çalıştırma
 if __name__ == "__main__":
     LOG.info("Starting bot. PAPER_MODE=%s", PAPER_MODE)
-    keep_alive()  # Sunucuyu aktif tutan web server
-    loop.create_task(self_ping())  # Kendi kendini pingleyen görev
+    keep_alive(loop)  # Sadece ping server başlar
     start_all_services()
     loop.create_task(application.run_polling())
     loop.run_forever()
