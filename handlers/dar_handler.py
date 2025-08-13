@@ -1,6 +1,7 @@
-# dar_handler.py
-# agac, içerik
-# /dar, /dar L 
+# handlers/dar_handler.py
+# --------------------------------
+# /dar      -> Dosya ağacı
+# /dar L    -> Dosya içeriği + bağımlılık bilgisi, zip olarak gönderir
 
 import os
 import zipfile
@@ -8,6 +9,7 @@ from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
 
+# Dosya uzantısı -> dil eşlemesi
 EXT_LANG_MAP = {
     '.py': 'Python',
     '.js': 'JavaScript',
@@ -24,6 +26,8 @@ EXT_LANG_MAP = {
 
 TELEGRAM_MSG_LIMIT = 4000  # Karakter limiti
 
+# -------------------------------
+# Dosya bağımlılıklarını okuma
 def get_dependencies(filepath, lang):
     deps = []
     try:
@@ -42,10 +46,12 @@ def get_dependencies(filepath, lang):
         deps.append('[Dependencies could not be read]')
     return deps
 
+# -------------------------------
+# /dar komutu
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     include_content = len(args) > 0 and args[0].lower() == 'l'
-    startpath = '.'
+    startpath = '.'  # Bot root dizini
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_filename = f"Bot_dar_{timestamp}.zip"
@@ -61,6 +67,7 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             filepath = os.path.join(root, f)
             ext = os.path.splitext(f)[1]
             lang = EXT_LANG_MAP.get(ext, 'Text')
+
             if not include_content:
                 desc = f" # {lang}" if lang != 'Text' else ''
                 output_lines.append(f"{indent}    {f}{desc}")
@@ -109,6 +116,8 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f.write(output_text)
             with open(txt_filename, 'rb') as f:
                 await update.message.reply_document(document=f)
-##plug
+
+# -------------------------------
+# Plugin loader uyumlu
 def register_handlers(app):
     app.add_handler(CommandHandler("dar", dar_command))
