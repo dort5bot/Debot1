@@ -1,92 +1,128 @@
-##coinglass_utils.py
-##
+# utils/coinglass_utils.py
 
 import os
-import requests
+import logging
+from typing import Optional, Dict, Any, List
 from datetime import datetime
+
+import httpx
 from dotenv import load_dotenv
 
 load_dotenv()
 
-COINGLASS_API_KEY = os.getenv("COINGLASS_API_KEY")
-BASE_URL = "https://open-api.coinglass.com/api/pro/v1"
+LOG = logging.getLogger("coinglass_utils")
+LOG.addHandler(logging.NullHandler())
 
-headers = {
-    "coinglassSecret": COINGLASS_API_KEY
-}
+COINGLASS_BASE = os.getenv("COINGLASS_BASE", "https://open-api.coinglass.com/api/pro/v1")
+COINGLASS_KEY = os.getenv("COINGLASS_API_KEY", "")
 
-def get_funding_rate(symbol: str):
-    """
-    Tüm borsalardaki funding rate verilerini getirir.
-    """
+HEADERS = {"coinglassSecret": COINGLASS_KEY} if COINGLASS_KEY else {}
+
+# ------------------ Genel Futures Verileri ------------------ #
+
+async def get_funding_rate(symbol: str) -> Optional[Dict[str, Any]]:
+    """Tüm borsalardaki funding rate verilerini getirir."""
+    if not COINGLASS_KEY:
+        return None
     try:
-        url = f"{BASE_URL}/futures/funding_rate"
+        url = f"{COINGLASS_BASE}/futures/funding_rate"
         params = {"symbol": symbol}
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, headers=HEADERS, params=params)
+            r.raise_for_status()
+            return r.json()
     except Exception as e:
-        print(f"[Coinglass] Funding rate verisi alınamadı: {e}")
+        LOG.warning("[Coinglass] Funding rate alınamadı: %s", e)
         return None
 
-def get_open_interest(symbol: str):
-    """
-    Toplam açık pozisyon (Open Interest) verisini getirir.
-    """
+
+async def get_open_interest(symbol: str) -> Optional[Dict[str, Any]]:
+    """Toplam açık pozisyon (Open Interest) verisini getirir."""
+    if not COINGLASS_KEY:
+        return None
     try:
-        url = f"{BASE_URL}/futures/openInterest"
+        url = f"{COINGLASS_BASE}/futures/openInterest"
         params = {"symbol": symbol}
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, headers=HEADERS, params=params)
+            r.raise_for_status()
+            return r.json()
     except Exception as e:
-        print(f"[Coinglass] Open Interest verisi alınamadı: {e}")
+        LOG.warning("[Coinglass] Open Interest alınamadı: %s", e)
         return None
 
-def get_long_short_ratio(symbol: str):
-    """
-    Long/Short oranı (pozisyon yüzdesi) verisini getirir.
-    """
+
+async def get_long_short_ratio(symbol: str) -> Optional[Dict[str, Any]]:
+    """Long/Short oranı (pozisyon yüzdesi) verisini getirir."""
+    if not COINGLASS_KEY:
+        return None
     try:
-        url = f"{BASE_URL}/futures/longShortRate"
+        url = f"{COINGLASS_BASE}/futures/longShortRate"
         params = {"symbol": symbol}
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json()
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, headers=HEADERS, params=params)
+            r.raise_for_status()
+            return r.json()
     except Exception as e:
-        print(f"[Coinglass] Long/Short verisi alınamadı: {e}")
+        LOG.warning("[Coinglass] Long/Short oranı alınamadı: %s", e)
         return None
 
-###♦️
-# ETF sağlayıcı isimleri - ID eşleştirmesi (Coinglass API'ye göre)
+
+async def get_taker_volume(symbol: str, interval: str = "15m") -> Optional[Dict[str, float]]:
+    """
+    Taker Buy/Sell hacimlerini getirir.
+    Beklenen dönüş: {'buy': float, 'sell': float}
+    """
+    if not COINGLASS_KEY:
+        return None
+    try:
+        url = f"{COINGLASS_BASE}/futures/taker_volume"
+        params = {"symbol": symbol, "interval": interval}
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.get(url, headers=HEADERS, params=params)
+            r.raise_for_status()
+            data = r.json()
+            last = (data.get("data") or [])[-1] if isinstance(data.get("data"), list) else None
+            if not last:
+                return None
+            buy = float(last.get("buyVol", 0.0))
+            sell = float(last.get("sellVol", 0.0))
+            return {"buy": buy, "sell": sell}
+    except Exception as e:
+        LOG.warning("[Coinglass] Taker volume alınamadı (%s %s): %s", symbol, interval, e)
+        return None
+
+# ------------------ ETF Verileri ------------------ #
+
 PROVIDER_MAP = {
     "BlackRock": ["IBIT", "ETHA"],  # BTC ve ETH ETF sembolleri
     "Fidelity": ["FBTC", "FETH"],
     "Grayscale": ["GBTC", "ETHE"]
 }
 
-def get_etf_flow_history(asset: str):
+async def get_etf_flow_history(asset: str) -> List[Dict[str, Any]]:
+    """Belirtilen varlık için ETF Net Akış geçmişini getirir."""
+    if not COINGLASS_KEY:
+        return []
     try:
-        url = f"{BASE_URL}/etf/{asset}/flow-history"
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        print(f"[DEBUG] ETF API Response for {asset}: {data}")  # <== Burada cevabı kontrol et
-        return data.get("data", [])
+        url = f"{COINGLASS_BASE}/etf/{asset}/flow-history"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(url, headers=HEADERS)
+            r.raise_for_status()
+            data = r.json()
+            LOG.debug("[ETF] API Response for %s: %s", asset, data)
+            return data.get("data", [])
     except Exception as e:
-        print(f"[Coinglass] {asset} ETF verisi alınamadı: {e}")
+        LOG.warning("[Coinglass] %s ETF verisi alınamadı: %s", asset, e)
         return []
 
 
-def parse_etf_report(asset: str):
-    """
-    Verilen varlık için ETF raporu hazırlar.
-    """
-    raw_data = get_etf_flow_history(asset)
+async def parse_etf_report(asset: str) -> str:
+    """Verilen varlık için ETF raporu hazırlar."""
+    raw_data = await get_etf_flow_history(asset)
     if not raw_data:
         return f"{asset.upper()} için veri alınamadı."
 
-    # Son 2 gün verisi (bugün ve dün)
     today_data = raw_data[0]
     yesterday_data = raw_data[1] if len(raw_data) > 1 else None
 
@@ -96,7 +132,6 @@ def parse_etf_report(asset: str):
 
     trend_emoji = "🟢" if change > 0 else "🔴" if change < 0 else "⚪"
 
-    # Sağlayıcı bazlı veriler
     provider_lines = []
     for provider, tickers in PROVIDER_MAP.items():
         prov_total = sum(
@@ -109,12 +144,4 @@ def parse_etf_report(asset: str):
         f"Total: {total_today:,.0f} $ ({'+' if change>0 else ''}{change:,.0f} $) {trend_emoji}\n"
         + "\n".join(provider_lines)
     )
-
     return report
-
-
-###♦️
-
-
-
-
