@@ -1,7 +1,7 @@
 # handlers/dar_handler.py
 # --------------------------------
 # /dar      -> Dosya ağacı
-# /dar L    -> Dosya içeriği + bağımlılık bilgisi, zip olarak gönderir
+# /dar L    -> Dosya içerikleri + bağımlılık bilgisi (ZIP ile)
 
 import os
 import zipfile
@@ -25,10 +25,11 @@ EXT_LANG_MAP = {
 }
 
 TELEGRAM_MSG_LIMIT = 4000  # Karakter limiti
+ROOT_DIR = '.'  # Bot root dizini
 
-# -------------------------------
-# Dosya bağımlılıklarını okuma
+
 def get_dependencies(filepath, lang):
+    """Belirtilen dosyanın bağımlılıklarını okur."""
     deps = []
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
@@ -46,12 +47,10 @@ def get_dependencies(filepath, lang):
         deps.append('[Dependencies could not be read]')
     return deps
 
-# -------------------------------
-# /dar komutu
+
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     include_content = len(args) > 0 and args[0].lower() == 'l'
-    startpath = '.'  # Bot root dizini
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     zip_filename = f"Bot_dar_{timestamp}.zip"
@@ -59,56 +58,50 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     output_lines = []
 
-    for root, dirs, files in os.walk(startpath):
-        level = root.replace(startpath, '').count(os.sep)
+    # ZIP hazırlama
+    zipf = zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) if include_content else None
+
+    for root, dirs, files in os.walk(ROOT_DIR):
+        # Klasör adı ekle
+        level = root.replace(ROOT_DIR, '').count(os.sep)
         indent = ' ' * 4 * level
         output_lines.append(f"{indent}{os.path.basename(root)}/")
-        for f in files:
-            filepath = os.path.join(root, f)
-            ext = os.path.splitext(f)[1]
+
+        for fname in files:
+            filepath = os.path.join(root, fname)
+            ext = os.path.splitext(fname)[1]
             lang = EXT_LANG_MAP.get(ext, 'Text')
 
             if not include_content:
+                # Sadece dosya adı + dil bilgisi
                 desc = f" # {lang}" if lang != 'Text' else ''
-                output_lines.append(f"{indent}    {f}{desc}")
+                output_lines.append(f"{indent}    {fname}{desc}")
             else:
+                # İçerik + bağımlılık ekleme
                 deps = get_dependencies(filepath, lang)
                 try:
                     with open(filepath, 'r', encoding='utf-8') as file:
                         content = file.read()
-                    deps_section = ''
-                    if deps:
-                        deps_section = "# Dependencies:\n" + "\n".join(deps) + "\n\n"
-                    file_content = f"# {os.path.relpath(filepath, startpath)} [{lang}]\n{deps_section}{content}\n\n"
+                    deps_section = f"# Dependencies:\n" + "\n".join(deps) + "\n\n" if deps else ''
+                    content_with_header = (
+                        f"# {os.path.relpath(filepath, ROOT_DIR)} [{lang}]\n"
+                        f"{deps_section}{content}\n\n"
+                    )
                 except Exception:
-                    file_content = f"# {os.path.relpath(filepath, startpath)} [{lang}]\n[Dosya okunamadı]\n"
-                output_lines.append(file_content)
+                    content_with_header = (
+                        f"# {os.path.relpath(filepath, ROOT_DIR)} [{lang}]\n[Dosya okunamadı]\n"
+                    )
 
-    output_text = "\n".join(output_lines)
+                # ZIP içine yaz
+                zipf.writestr(os.path.relpath(filepath, ROOT_DIR), content_with_header)
 
+    # ZIP veya TXT gönder
     if include_content:
-        # /dar L -> zip gönder
-        with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            for root, dirs, files in os.walk(startpath):
-                for f in files:
-                    filepath = os.path.join(root, f)
-                    ext = os.path.splitext(f)[1]
-                    lang = EXT_LANG_MAP.get(ext, 'Text')
-                    deps = get_dependencies(filepath, lang)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as file:
-                            content = file.read()
-                        deps_section = ''
-                        if deps:
-                            deps_section = "# Dependencies:\n" + "\n".join(deps) + "\n\n"
-                        content_with_header = f"# {os.path.relpath(filepath, startpath)} [{lang}]\n{deps_section}{content}\n\n"
-                        zipf.writestr(os.path.relpath(filepath, startpath), content_with_header)
-                    except Exception:
-                        zipf.writestr(os.path.relpath(filepath, startpath), f"# {os.path.relpath(filepath, startpath)} [{lang}]\n[Dosya okunamadı]\n")
+        zipf.close()
         with open(zip_filename, 'rb') as f:
             await update.message.reply_document(document=f)
     else:
-        # /dar -> mesaj veya txt
+        output_text = "\n".join(output_lines)
         if len(output_text) <= TELEGRAM_MSG_LIMIT:
             await update.message.reply_text(f"<pre>{output_text}</pre>", parse_mode="HTML")
         else:
@@ -117,7 +110,7 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             with open(txt_filename, 'rb') as f:
                 await update.message.reply_document(document=f)
 
-# -------------------------------
+
 # Plugin loader uyumlu
 def register(app):
     app.add_handler(CommandHandler("dar", dar_command))
