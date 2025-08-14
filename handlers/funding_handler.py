@@ -2,13 +2,15 @@
 # 📊 Binance Funding Rate Handler
 # Plugin loader uyumlu, hem komut hem stream/polling verisi için
 
-from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
 
 import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional, Union
+
+
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
 
 from utils import binance_api
 
