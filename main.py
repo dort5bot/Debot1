@@ -19,8 +19,8 @@ from utils.monitoring import configure_logging
 from utils.config import STREAM_SYMBOLS, STREAM_INTERVAL, EVALUATOR_WINDOW, EVALUATOR_THRESHOLD, PAPER_MODE
 from utils.handler_loader import load_handlers
 
-# Handlers (bazı özel handlerlar manuel import ediliyor)
-from handlers import signal_handler, kline_handler, ticker_handler, alerts_handler, funding_handler
+# yeni Handler EKLENİR +(bazı özel handlerlar manuel import ediliyor)
+from handlers import signal_handler, kline_handler, ticker_handler, alerts_handler, funding_handler, io_handler
 from strategies.rsi_macd_strategy import RSI_MACD_Strategy
 
 
