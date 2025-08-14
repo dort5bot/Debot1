@@ -6,7 +6,7 @@ STABLE_QUOTES = ["USDT", "USDC", "BUSD", "FDUSD"]
 
 async def get_btc_dominance():
     """BTC Dominance = BTC hacmi / toplam piyasa hacmi"""
-    tickers = await binance_api.get_all_24h_tickers()
+    tickers = await binance_api.get_24h_tickers()
     total_vol = 0
     btc_vol = 0
     for t in tickers:
