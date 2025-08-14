@@ -23,16 +23,6 @@ HELP = (
 
 
 # ---------------- Plugin loader uyumlu register ----------------
-def register(application):
-    """
-    Plugin loader'ın çağıracağı fonksiyon.
-    """
-    handler_info = get_handler()
-    application.add_handler(
-        CommandHandler(handler_info["command"], handler_info["callback"])
-    )
-
-
 def get_handler():
     """
     Main plugin loader'ın çağıracağı metadata.
@@ -81,3 +71,14 @@ async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         LOG.exception("io command failed: %s", e)
         await update.message.reply_text("Üzgünüm, /io raporu oluşturulurken hata oluştu.")
+
+
+#--loader plugin 
+def register(application):
+    """
+    Plugin loader'ın çağıracağı fonksiyon.
+    """
+    handler_info = get_handler()
+    application.add_handler(
+        CommandHandler(handler_info["command"], handler_info["callback"])
+    )
