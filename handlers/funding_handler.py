@@ -1,11 +1,10 @@
 # handlers/funding_handler.py
-#fonlama
+# 📊 Binance Funding Rate Handler
+# Plugin loader uyumlu, hem komut hem stream/polling verisi için
 
-#plugin:1/2  giris
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-#handler kodu
 import asyncio
 import logging
 from datetime import datetime
@@ -15,10 +14,13 @@ from utils import binance_api
 
 LOG = logging.getLogger("funding_handler")
 
-# Bu değerle aynı anda kaç sembole istek atılacağını kontrol edersin
+# Aynı anda sorgulanacak sembol sayısı
 _CONCURRENCY = 12
 
 
+# -------------------------------------------------
+# Yardımcı Fonksiyonlar
+# -------------------------------------------------
 def _normalize_symbols(input_syms: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
     """
     input_syms: None | "btc eth" | ["btc","eth"] | ["BTCUSDT"]
@@ -36,12 +38,13 @@ def _normalize_symbols(input_syms: Optional[Union[str, List[str]]]) -> Optional[
         if not s:
             continue
         if not s.endswith("USDT"):
-            s = s + "USDT"
+            s += "USDT"
         out.append(s)
     return out if out else None
 
 
 async def _fetch_rate_for_symbol(sym: str, sem: asyncio.Semaphore):
+    """Tek sembol için funding rate getirir."""
     async with sem:
         try:
             data = await binance_api.get_funding_rate(symbol=sym, limit=1)
@@ -49,96 +52,89 @@ async def _fetch_rate_for_symbol(sym: str, sem: asyncio.Semaphore):
                 return None
             item = data[0] if isinstance(data, list) and data else data
             rate = float(item.get("fundingRate", 0.0)) * 100.0
-            time_ms = item.get("fundingTime") or item.get("time") or None
+            time_ms = item.get("fundingTime") or item.get("time")
             return {"symbol": sym, "rate": rate, "time_ms": time_ms}
         except Exception as e:
-            LOG.debug("fetch funding failed for %s: %s", sym, e)
+            LOG.debug("Fetch funding failed for %s: %s", sym, e)
             return None
 
 
+# -------------------------------------------------
+# Ana Rapor Fonksiyonu
+# -------------------------------------------------
 async def funding_report(symbols: Optional[Union[str, List[str]]] = None) -> str:
     """
-    Eğer symbols None ise tüm USDT perpetual semboller arasından mutlak değere göre
+    Eğer symbols None ise, tüm USDT perpetual semboller arasından mutlak değere göre
     en yüksek 10 taneyi döner. Eğer symbols verilirse sadece istenenler sorgulanır.
     """
     try:
-        # normalize user input
         user_syms = _normalize_symbols(symbols)
 
-        # tüm semboller
         all_symbols = await binance_api.get_all_symbols()
         futures_symbols = [s for s in all_symbols if s.endswith("USDT")]
 
         if user_syms:
-            # sadece geçerli olanları al
             futures_symbols = [s for s in user_syms if s in futures_symbols]
             if not futures_symbols:
                 return "❌ Geçerli bir sembol bulunamadı."
-        else:
-            if not futures_symbols:
-                return "❌ Futures sembolleri alınamadı."
+        elif not futures_symbols:
+            return "❌ Futures sembolleri alınamadı."
 
         sem = asyncio.Semaphore(_CONCURRENCY)
         tasks = [_fetch_rate_for_symbol(s, sem) for s in futures_symbols]
         fetched = await asyncio.gather(*tasks, return_exceptions=False)
 
         results = [r for r in fetched if r is not None]
-
         if not results:
             return "❌ Veri alınamadı."
 
-        # sort by absolute funding (desc)
         results.sort(key=lambda x: abs(x["rate"]), reverse=True)
-
-        # if user didn't request specific list, show top 10
         if user_syms is None:
             results = results[:10]
 
-        # compute average over returned set
         avg_rate = sum(r["rate"] for r in results) / len(results)
 
-        # build lines
+        # Liste oluştur
         lines = []
         for r in results:
-            sym = r["symbol"]
-            rate = r["rate"]
-            arrow = "🔼" if rate > 0 else ("🔻" if rate < 0 else "⚪")
-            # time formatting if available
+            arrow = "🔼" if r["rate"] > 0 else ("🔻" if r["rate"] < 0 else "⚪")
+            ts = "-"
             if r["time_ms"]:
                 try:
                     t = datetime.fromtimestamp(int(r["time_ms"]) / 1000)
                     ts = t.strftime("%Y-%m-%d %H:%M")
                 except Exception:
-                    ts = "-"
-            else:
-                ts = "-"
-            lines.append(f"{sym}: {rate:.3f}% {arrow} ({ts})")
+                    pass
+            lines.append(f"{r['symbol']}: {r['rate']:.3f}% {arrow} ({ts})")
 
-        yorum = "Short yönlü baskı artıyor" if avg_rate < 0 else "Long yönlü baskı artıyor" if avg_rate > 0 else "Tarafsız (yakın 0)"
+        yorum = (
+            "Short yönlü baskı artıyor" if avg_rate < 0
+            else "Long yönlü baskı artıyor" if avg_rate > 0
+            else "Tarafsız (yakın 0)"
+        )
 
         header = "📊 Funding Rate Raporu (Top 10)\n" if user_syms is None else "📊 Funding Rate Raporu\n"
-        body = "\n".join(lines)
         footer = f"\n\nGenel Ortalama: {avg_rate:.3f}% {'🔻' if avg_rate < 0 else '🔼' if avg_rate > 0 else ''}\nYorum: {yorum}"
-
-        return header + body + footer
+        return header + "\n".join(lines) + footer
 
     except Exception as e:
         LOG.exception("funding_report hata")
         return f"❌ Funding raporu hatası: {e}"
 
 
+# -------------------------------------------------
+# Stream / Polling Data İşleyici
+# -------------------------------------------------
 async def handle_funding_data(data):
     """
     Stream veya polling ile gelen data burada işlenir.
     Beklenen formatlar:
-     - WebSocket benzeri kısa format: {'s': 'BTCUSDT', 'r': '0.0001', 'T': 166...}
-     - REST/polling format: {'symbol': 'BTCUSDT', 'fundingRate': '0.0001', 'fundingTime': 166...}
-     - Veya get_funding_rate()'den dönen liste (list of dict) — bu durumda iterasyon yapar.
-    Bu fonksiyon log basar; istersen buraya queue/DB/telegram publish vb. ekleyebilirsin.
+      - WebSocket kısa format: {'s': 'BTCUSDT', 'r': '0.0001', 'T': 166...}
+      - REST/polling format: {'symbol': 'BTCUSDT', 'fundingRate': '0.0001', 'fundingTime': 166...}
+      - get_funding_rate() list formatı
     """
     try:
         if isinstance(data, list):
-            # polling döndürdüğü list formatı
             for item in data:
                 if not isinstance(item, dict):
                     continue
@@ -155,7 +151,6 @@ async def handle_funding_data(data):
             return
 
         if isinstance(data, dict):
-            # websocket kısa form
             if ("s" in data and "r" in data) or ("symbol" in data and "fundingRate" in data):
                 sym = data.get("s") or data.get("symbol")
                 rate = data.get("r") or data.get("fundingRate")
@@ -174,11 +169,11 @@ async def handle_funding_data(data):
         LOG.exception("handle_funding_data hata: %s", e)
 
 
-#plugin:2/2 ek kisim
+# -------------------------------------------------
+# Telegram Komutu
+# -------------------------------------------------
 async def _cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    /funding veya /fr komutlarıyla funding raporu döndürür
-    """
+    """Telegram komutu: /funding veya /fr"""
     try:
         symbols = context.args if context.args else None
         text = await funding_report(symbols)
@@ -186,10 +181,11 @@ async def _cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Hata: {e}")
 
-def register(application):
-    """
-    Plugin loader uyumlu register fonksiyonu
-    """
-    application.add_handler(CommandHandler(["funding", "fr"], _cmd_funding))
-    LOG.info("Funding handler registered.")
 
+# -------------------------------------------------
+# Plugin Loader Entry
+# -------------------------------------------------
+def register(application):
+    """Plugin loader uyumlu kayıt fonksiyonu"""
+    application.add_handler(CommandHandler(["funding", "f","fr"], _cmd_funding))
+    LOG.info("Funding handler registered.")
