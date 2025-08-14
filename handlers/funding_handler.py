@@ -1,5 +1,11 @@
 # handlers/funding_handler.py
 #fonlama
+
+#plugin:1/2  giris
+from telegram import Update
+from telegram.ext import CommandHandler, ContextTypes
+
+#handler kodu
 import asyncio
 import logging
 from datetime import datetime
@@ -166,3 +172,24 @@ async def handle_funding_data(data):
 
     except Exception as e:
         LOG.exception("handle_funding_data hata: %s", e)
+
+
+#plugin:2/2 ek kisim
+async def _cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    /funding veya /fr komutlarıyla funding raporu döndürür
+    """
+    try:
+        symbols = context.args if context.args else None
+        text = await funding_report(symbols)
+        await update.message.reply_text(text)
+    except Exception as e:
+        await update.message.reply_text(f"❌ Hata: {e}")
+
+def register(application):
+    """
+    Plugin loader uyumlu register fonksiyonu
+    """
+    application.add_handler(CommandHandler(["funding", "fr"], _cmd_funding))
+    LOG.info("Funding handler registered.")
+
