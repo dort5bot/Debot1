@@ -1,58 +1,54 @@
 # handlers/ap_handler.py
-import math
+import asyncio
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
-from utils import ap_utils
-
+from utils.ap_utils import get_btc_dominance, calculate_ap_score
+from utils.ap_utils import get_alt_metrics, get_btc_metrics  # async metrikler
 
 async def ap_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # --- Metrikleri topla ---
-    metrics = await ap_utils.collect_ap_metrics()
-    scores = ap_utils.calculate_ap_score(metrics)
+    """/ap komutu: AP skor raporu"""
+    msg = await update.message.reply_text("AP skor raporu hazırlanıyor... ⏳")
 
-    # --- Skorları 0-100 ölçeğine çevir ---
-    # Altların BTC'ye karşı kısa vade gücü -> btc_dominance_score + alt_price_score
-    alt_vs_btc_score = scores["btc_dominance_score"] + scores["alt_price_score"]
-    alt_vs_btc_pct = round(((alt_vs_btc_score + 4) / 8) * 100, 1)  # max 4, min -4
+    try:
+        # Async metrikleri al
+        btc_dom_task = asyncio.create_task(get_btc_dominance())
+        alt_task = asyncio.create_task(get_alt_metrics())
+        btc_task = asyncio.create_task(get_btc_metrics())
+        
+        btc_dominance = await btc_dom_task
+        alt_metrics = await alt_task
+        btc_metrics = await btc_task
 
-    # Altların USD bazlı kısa vade gücü -> alt_price_score + alt_io_score
-    alt_usd_score = scores["alt_price_score"] + scores["alt_io_score"]
-    alt_usd_pct = round(((alt_usd_score + 4) / 8) * 100, 1)
+        metrics = {
+            "btc_dominance": btc_dominance,
+            "alt": alt_metrics,
+            "btc": btc_metrics
+        }
 
-    # Uzun vade güç -> total_score (max 10, min -10)
-    long_term_pct = round(((scores["total_score"] + 10) / 20) * 100, 1)
+        # AP skoru hesapla
+        ap_score = calculate_ap_score(metrics)
 
-    # --- Yorum ---
-    def yorum(pct):
-        if pct < 20:
-            return "Çok zayıf"
-        elif pct < 40:
-            return "Zayıf"
-        elif pct < 60:
-            return "Orta seviye"
-        elif pct < 80:
-            return "Güçlü"
-        else:
-            return "Çok güçlü"
+        # Mesajı hazırla
+        report = (
+            f"📊 <b>AP Skor Raporu</b>\n\n"
+            f"BTC Dominance: {btc_dominance:.2f}% (Score: {ap_score['btc_dominance_score']})\n\n"
+            f"<b>Altcoin</b>\n"
+            f"Fiyat değişimi: {alt_metrics['price_change']:.2f}% (Score: {ap_score['alt_price_score']})\n"
+            f"Net IO: {alt_metrics['net_io']:,} USD (Score: {ap_score['alt_io_score']})\n\n"
+            f"<b>BTC</b>\n"
+            f"Fiyat değişimi: {btc_metrics['price_change']:.2f}% (Score: {ap_score['btc_price_score']})\n"
+            f"Net IO: {btc_metrics['net_io']:,} USD (Score: {ap_score['btc_io_score']})\n\n"
+            f"🔥 <b>Toplam AP Skoru:</b> {ap_score['total_score']}"
+        )
 
-    yorum_text = (
-        f"({alt_vs_btc_pct}): BTC karşısında {yorum(alt_vs_btc_pct).lower()} performans.\n"
-        f"({alt_usd_pct}): USD bazlı kısa vade genel altcoin gücü.\n"
-        f"({long_term_pct}): {yorum(long_term_pct)} uzun vade alıcı baskısı."
-    )
-
-    # --- Mesaj ---
-    msg = (
-        f"📊 *AP Raporu*\n\n"
-        f"Altların Kısa Vadede BTC'ye Karşı Gücü (0-100): *{alt_vs_btc_pct}*\n"
-        f"Altların Kısa Vadede Gücü (0-100): *{alt_usd_pct}*\n"
-        f"Coinlerin Uzun Vadede Gücü (0-100): *{long_term_pct}*\n\n"
-        f"*Yorum:*\n{yorum_text}"
-    )
-
-    await update.message.reply_text(msg, parse_mode="Markdown")
+        await msg.edit_text(report, parse_mode="HTML")
+    except Exception as e:
+        await msg.edit_text(f"❌ Hata oluştu: {e}")
 
 
-# Plugin loader uyumlu kayıt
 def register(application):
+    """
+    Plugin loader için register fonksiyonu.
+    Uygulama başlatıldığında bu fonksiyon çağrılır ve komut eklenir.
+    """
     application.add_handler(CommandHandler("ap", ap_handler))
