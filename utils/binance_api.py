@@ -119,6 +119,18 @@ async def get_24h_ticker(symbol: Optional[str] = None) -> Optional[dict]:
         LOG.warning("get_24h_ticker %s failed: %s", symbol, e)
         return None
 
+
+
+# /ap icin
+async def get_all_24h_tickers() -> list:
+    """Tüm 24h ticker bilgilerini döndürür"""
+    # ... EKLENDİ: AP hesaplamalarında kullanılacak tüm ticker verilerini çekmek için
+    return await _get("/ticker/24hr")
+
+
+
+
+
 async def get_order_book(symbol: str, limit: int = 100) -> Optional[dict]:
     try:
         return await _get("/depth", params={"symbol": symbol, "limit": limit})
