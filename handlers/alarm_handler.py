@@ -1,4 +1,6 @@
-# handlers/alarm_handler.py
+#alarm_handler.py
+
+
 import logging
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
@@ -6,7 +8,7 @@ from telegram.ext import CommandHandler, ContextTypes
 from utils.apikey_utils import (
     add_alarm,
     get_user_alarms,
-    delete_alarm_after_trigger,
+    delete_alarm,       # düzeltildi
     cleanup_old_alarms
 )
 from utils.monitoring import telegram_alert
@@ -18,7 +20,7 @@ LOG.addHandler(logging.NullHandler())
 # ---------------- ALARM İŞLEMLERİ ---------------- #
 def create_alarm(user_id: int, alarm_type: str, value: str):
     """Yeni alarm oluşturur"""
-    add_alarm(user_id, alarm_type, value)
+    add_alarm(user_id, {"type": alarm_type, "value": value})
     LOG.info(f"Alarm eklendi | user_id={user_id}, type={alarm_type}, value={value}")
     telegram_alert(f"✅ Alarm oluşturuldu\n📌 Tür: {alarm_type}\n🎯 Değer: {value}")
 
@@ -26,7 +28,7 @@ def create_alarm(user_id: int, alarm_type: str, value: str):
 def trigger_alarm(user_id: int, alarm_id: int, message: str):
     """Alarm tetikler ve siler"""
     telegram_alert(f"🚨 Alarm Tetiklendi!\n\n{message}")
-    delete_alarm_after_trigger(alarm_id)
+    delete_alarm(alarm_id)  # düzeltildi
     LOG.info(f"Alarm tetiklendi ve silindi | user_id={user_id}, alarm_id={alarm_id}")
 
 
