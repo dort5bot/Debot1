@@ -2,142 +2,167 @@
 # Plugin loader uyumlu
 # self-ping kaldırıldı, sadece keep_alive web server aktif
 
+# main.py — Modern & Geliştirilebilir Telegram Trading Bot
+
 import asyncio
 import os
 import logging
 from telegram.ext import ApplicationBuilder
 
 from keep_alive import keep_alive
-
-# Utils
 from utils.db import init_db
 from utils.signal_evaluator import SignalEvaluator
 from utils.order_manager import OrderManager
 from utils.binance_api import BinanceClient
 from utils.stream_manager import StreamManager
 from utils.monitoring import configure_logging
-from utils.config import STREAM_SYMBOLS, STREAM_INTERVAL, EVALUATOR_WINDOW, EVALUATOR_THRESHOLD, PAPER_MODE
+from utils.config import (
+    STREAM_SYMBOLS,
+    STREAM_INTERVAL,
+    EVALUATOR_WINDOW,
+    EVALUATOR_THRESHOLD,
+    PAPER_MODE
+)
 from utils.handler_loader import load_handlers
-
-# yeni Handler EKLENİR +(bazı özel handlerlar manuel import ediliyor)
-from handlers import signal_handler, kline_handler, ticker_handler, alerts_handler, funding_handler, io_handler
 from strategies.rsi_macd_strategy import RSI_MACD_Strategy
 
-
 # -------------------------------
-# Logging & DB Init
+# Global Config & Init
 configure_logging(logging.INFO)
 LOG = logging.getLogger("main")
-init_db()
 
-# -------------------------------
-# Event loop
-loop = asyncio.get_event_loop()
+init_db()  # Database init
 
 # Binance client & stream manager
 bin_client = BinanceClient()
-stream_mgr = StreamManager(bin_client, loop=loop)
+stream_mgr = StreamManager(bin_client)
 
-# Order manager & evaluator
-om = OrderManager(paper_mode=PAPER_MODE)
+# Order Manager
+order_manager = OrderManager(paper_mode=PAPER_MODE)
 
+# Signal evaluator
 async def decision_cb(decision):
-    return await om.process_decision(decision)
+    return await order_manager.process_decision(decision)
 
 evaluator = SignalEvaluator(
     decision_callback=decision_cb,
-    loop=loop,
     window_seconds=EVALUATOR_WINDOW,
     threshold=EVALUATOR_THRESHOLD
 )
 evaluator.start()
-signal_handler.set_evaluator(evaluator)
 
-# Shared kline queue & strategies
+# Shared queue for kline data
 queue = asyncio.Queue()
-strategies = {s: RSI_MACD_Strategy(s) for s in STREAM_SYMBOLS}
+
+# Strategies dictionary
+strategies = {symbol: RSI_MACD_Strategy(symbol) for symbol in STREAM_SYMBOLS}
+
 
 # -------------------------------
-# WebSocket köprüsü
+# Data bridge for WebSocket messages
 async def bridge(msg):
+    """Route WebSocket messages to appropriate handlers."""
+    from handlers import funding_handler, ticker_handler
+
     try:
-        data = msg.get("data") if isinstance(msg, dict) and "data" in msg else msg
+        data = msg.get("data") if isinstance(msg, dict) else msg
         if isinstance(data, dict) and "k" in data:
-            await queue.put(data)
+            await queue.put(data)  # Kline data
         else:
             await funding_handler.handle_funding_data(data)
             await ticker_handler.handle_ticker_data(data)
     except Exception as e:
         LOG.exception("bridge error: %s", e)
 
-# Kline processor
+
+# -------------------------------
+# Kline Processor
 async def kline_processor():
+    """Consume kline data and feed strategies."""
+    from handlers import signal_handler
+
     while True:
         data = await queue.get()
         try:
-            s = data.get("s")
             k = data.get("k", {})
-            if not k.get("x", False):
+            if not k.get("x"):  # Only closed candles
                 continue
-            close = float(k.get("c"))
-            st = strategies.get(s)
-            if st:
-                out = st.on_new_close(close)
-                if out:
+            close_price = float(k["c"])
+            symbol = data.get("s")
+
+            strategy = strategies.get(symbol)
+            if strategy:
+                signal = strategy.on_new_close(close_price)
+                if signal:
                     await signal_handler.publish_signal(
-                        "rsi_macd", s, out["type"], strength=out["strength"], payload=out["payload"]
+                        "rsi_macd",
+                        symbol,
+                        signal["type"],
+                        strength=signal["strength"],
+                        payload=signal["payload"]
                     )
         except Exception as e:
             LOG.exception("kline_processor error: %s", e)
         finally:
             queue.task_done()
 
-# Stream listesi
-def build_stream_list(symbols, interval):
-    return [f"{s.lower()}@kline_{interval}" for s in symbols] + [f"{s.lower()}@ticker" for s in symbols]
 
-# Servisleri başlat
+# -------------------------------
+# Stream List Builder
+def build_stream_list(symbols, interval):
+    return [
+        f"{s.lower()}@kline_{interval}" for s in symbols
+    ] + [
+        f"{s.lower()}@ticker" for s in symbols
+    ]
+
+
+# -------------------------------
+# Start All Services
 def start_all_services():
     streams = build_stream_list(STREAM_SYMBOLS, STREAM_INTERVAL)
     stream_mgr.start_combined_groups(streams, bridge)
     stream_mgr.start_periodic_funding_poll(
-        STREAM_SYMBOLS, interval_sec=60, callback=funding_handler.handle_funding_data
+        STREAM_SYMBOLS, interval_sec=60,
+        callback=lambda data: asyncio.create_task(
+            __import__("handlers").funding_handler.handle_funding_data(data)
+        )
     )
-    loop.create_task(kline_processor())
-    LOG.info("Started streams for symbols: %s", STREAM_SYMBOLS)
+    asyncio.create_task(kline_processor())
+    LOG.info("Started streams for: %s", ", ".join(STREAM_SYMBOLS))
 
 
 # -------------------------------
-# Telegram bot başlangıcı
+# Main Entry Point
 async def main():
     LOG.info("Starting bot. PAPER_MODE=%s", PAPER_MODE)
 
-    TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
-    if not TOKEN:
+    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    if not token:
         LOG.error("TELEGRAM_BOT_TOKEN environment variable not set!")
         return
 
-    # Application builder
-    application = ApplicationBuilder().token(TOKEN).build()
+    # Telegram Application
+    app = ApplicationBuilder().token(token).build()
 
-    # Plugin loader ile tüm handlerları yükle
-    load_handlers(application)
+    # Pass evaluator to signal handler dynamically
+    from handlers import signal_handler
+    signal_handler.set_evaluator(evaluator)
 
-    # Tüm servisleri başlat
+    # Load all handlers automatically
+    load_handlers(app)
+
+    # Start background services
     start_all_services()
 
-    # Keep-alive HTTP server başlat
-    keep_alive(loop)
+    # Keep-alive web server
+    keep_alive()
 
-    # Telegram polling başlat (await ile, create_task yerine)
-    await application.run_polling()
+    # Run Telegram bot (blocking)
+    await app.run_polling()
 
 
 # -------------------------------
 if __name__ == "__main__":
-    try:
-        loop.run_until_complete(main())
-    except KeyboardInterrupt:
-        LOG.info("Bot stopped manually")
-    except Exception as e:
-        LOG.exception("Fatal error: %s", e)
+    asyncio.run(main())
+ 
