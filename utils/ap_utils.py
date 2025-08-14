@@ -84,3 +84,76 @@ async def collect_ap_metrics():
         "alt": alt_data,
         "btc": btc_data
     }
+
+
+
+
+
+# utils/ap_utils.py  (devam) skorlama bölümü 
+
+def score_btc_dominance(dominance: float) -> int:
+    """
+    BTC Dominance düşükse altcoin piyasası güçlü, yüksekse BTC baskın.
+    0-40 -> +2 puan, 40-50 -> +1, 50-60 -> 0, 60-70 -> -1, 70+ -> -2
+    """
+    if dominance < 40:
+        return 2
+    elif dominance < 50:
+        return 1
+    elif dominance < 60:
+        return 0
+    elif dominance < 70:
+        return -1
+    else:
+        return -2
+
+def score_price_change(change: float) -> int:
+    """
+    Ortalama fiyat değişimi pozitifse +, negatifse - puan.
+    >5% -> +2, 0-5% -> +1, 0 ila -5% -> -1, <-5% -> -2
+    """
+    if change > 5:
+        return 2
+    elif change > 0:
+        return 1
+    elif change > -5:
+        return -1
+    else:
+        return -2
+
+def score_net_io(io_value: float) -> int:
+    """
+    Net giriş (buy-sell) pozitifse piyasa talep görüyor.
+    >500M -> +2, 0-500M -> +1, 0 ila -500M -> -1, <-500M -> -2
+    """
+    if io_value > 500_000_000:
+        return 2
+    elif io_value > 0:
+        return 1
+    elif io_value > -500_000_000:
+        return -1
+    else:
+        return -2
+
+def calculate_ap_score(metrics: dict) -> dict:
+    """
+    Tüm metriklerden toplam AP skoru üretir.
+    Skor aralığı: -10 ile +10
+    """
+    btc_dom_score = score_btc_dominance(metrics["btc_dominance"])
+    alt_price_score = score_price_change(metrics["alt"]["price_change"])
+    alt_io_score = score_net_io(metrics["alt"]["net_io"])
+    btc_price_score = score_price_change(metrics["btc"]["price_change"])
+    btc_io_score = score_net_io(metrics["btc"]["net_io"])
+
+    total_score = btc_dom_score + alt_price_score + alt_io_score + btc_price_score + btc_io_score
+
+    return {
+        "btc_dominance_score": btc_dom_score,
+        "alt_price_score": alt_price_score,
+        "alt_io_score": alt_io_score,
+        "btc_price_score": btc_price_score,
+        "btc_io_score": btc_io_score,
+        "total_score": total_score
+    }
+    
