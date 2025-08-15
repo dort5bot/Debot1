@@ -1,4 +1,7 @@
-# utils/binance_api.py
+#binance_api.py
+#
+#
+##
 import os
 import asyncio
 import httpx
@@ -7,7 +10,7 @@ import time
 import hmac
 import hashlib
 import json
-from typing import List, Optional, Dict, Any, Callable
+from typing import List, Optional, Dict, Any, Callable, Tuple
 from urllib.parse import urlencode
 
 try:
@@ -18,11 +21,12 @@ except Exception:
 LOG = logging.getLogger("binance_api")
 LOG.addHandler(logging.NullHandler())
 
-BASE = "https://api.binance.com/api/v3"
+BASE = "https://api.binance.com"
+API_V3 = BASE + "/api/v3"
 FAPI_BASE = "https://fapi.binance.com"
 WS_BASE = "wss://stream.binance.com:9443"
 
-CONCURRENCY = int(os.getenv("BINANCE_CONCURRENCY", "10"))
+CONCURRENCY = int(os.getenv("BINANCE_CONCURRENCY", "8"))
 _semaphore = asyncio.Semaphore(CONCURRENCY)
 _client: Optional[httpx.AsyncClient] = None
 
@@ -31,53 +35,94 @@ API_SECRET = os.getenv("BINANCE_API_SECRET")
 FAPI_KEY = os.getenv("BINANCE_FAPI_KEY") or API_KEY
 FAPI_SECRET = os.getenv("BINANCE_FAPI_SECRET") or API_SECRET
 
+# ---- Basit bellek içi cache (TTL) ----
+_cache: Dict[str, Tuple[float, Any]] = {}  # key -> (expires_at, data)
+
+def _now() -> float:
+    return time.time()
+
+def _cache_get(key: str):
+    item = _cache.get(key)
+    if not item:
+        return None
+    exp, data = item
+    if _now() > exp:
+        _cache.pop(key, None)
+        return None
+    return data
+
+def _cache_set(key: str, data: Any, ttl: float):
+    _cache[key] = (_now() + ttl, data)
+
 def get_client() -> httpx.AsyncClient:
     global _client
     if _client is None:
-        _client = httpx.AsyncClient(timeout=20.0)
+        _client = httpx.AsyncClient(
+            timeout=httpx.Timeout(20.0),
+            headers={"User-Agent": "YsfBot/1.0 (+rate-limit-friendly)"},
+        )
     return _client
 
-async def _get(path: str, params: dict = None, base: str = "") -> Any:
-    if base:
-        full = f"{base}{path}"
-    else:
-        full = path if path.startswith("http") else f"{BASE}{path}"
+async def _request(method: str, url: str, *, params=None, data=None, headers=None, max_tries: int = 4) -> Any:
+    """
+    Otomatik exponential backoff + 429 Retry-After desteği.
+    """
     client = get_client()
-    async with _semaphore:
-        for attempt in range(3):
-            try:
-                r = await client.get(full, params=params)
-                r.raise_for_status()
-                return r.json()
-            except Exception as e:
-                LOG.warning("GET %s failed (attempt %s): %s", full, attempt+1, e)
-                if attempt == 2:
-                    raise
-                await asyncio.sleep(0.25)
+    params = params or None
+    data = data or None
+    headers = headers or {}
 
-async def _post(path: str, data: dict = None, base: str = "") -> Any:
-    if base:
-        full = f"{base}{path}"
-    else:
-        full = path if path.startswith("http") else f"{BASE}{path}"
-    client = get_client()
-    async with _semaphore:
-        for attempt in range(3):
-            try:
-                r = await client.post(full, data=data)
-                r.raise_for_status()
-                return r.json()
-            except Exception as e:
-                LOG.warning("POST %s failed (attempt %s): %s", full, attempt+1, e)
-                if attempt == 2:
-                    raise
-                await asyncio.sleep(0.25)
+    backoff = 0.4
+    for attempt in range(1, max_tries + 1):
+        try:
+            async with _semaphore:
+                r = await client.request(method, url, params=params, data=data, headers=headers)
+            if r.status_code == 429:
+                retry_after = r.headers.get("Retry-After")
+                sleep_s = float(retry_after) if retry_after else backoff
+                LOG.warning("429 Too Many Requests (%s). Sleeping %.2fs (attempt %s/%s)", url, sleep_s, attempt, max_tries)
+                await asyncio.sleep(sleep_s)
+                backoff = min(backoff * 2, 5.0)
+                continue
+            r.raise_for_status()
+            return r.json()
+        except httpx.HTTPStatusError as e:
+            # 5xx -> backoff, diğerlerinde son denemede raise
+            status = e.response.status_code
+            if status >= 500 and attempt < max_tries:
+                LOG.warning("HTTP %s %s failed %s, retrying in %.2fs", method, url, status, backoff)
+                await asyncio.sleep(backoff); backoff = min(backoff * 2, 5.0)
+                continue
+            LOG.warning("HTTP error %s for %s %s: %s", status, method, url, e)
+            raise
+        except Exception as e:
+            if attempt < max_tries:
+                LOG.warning("Req error %s %s (attempt %s/%s): %s", method, url, attempt, max_tries, e)
+                await asyncio.sleep(backoff); backoff = min(backoff * 2, 5.0)
+                continue
+            raise
+
+async def _get(path: str, *, params: dict = None, base: str = API_V3, cache_ttl: float = 0.0, cache_key: Optional[str] = None) -> Any:
+    url = path if path.startswith("http") else f"{base}{path}"
+    if cache_ttl > 0:
+        key = cache_key or f"GET:{url}:{json.dumps(params, sort_keys=True) if params else ''}"
+        hit = _cache_get(key)
+        if hit is not None:
+            return hit
+        data = await _request("GET", url, params=params)
+        _cache_set(key, data, cache_ttl)
+        return data
+    return await _request("GET", url, params=params)
+
+async def _post(path: str, *, data: dict = None, base: str = API_V3) -> Any:
+    url = path if path.startswith("http") else f"{base}{path}"
+    return await _request("POST", url, data=data)
 
 def _sign(params: dict, secret: str) -> str:
     q = urlencode(params, doseq=True)
     return hmac.new(secret.encode(), q.encode(), hashlib.sha256).hexdigest()
 
-async def _signed_request(method: str, path: str, params: dict = None, base: str = BASE, key: Optional[str] = None, secret: Optional[str] = None) -> Any:
+async def _signed_request(method: str, path: str, *, params: dict = None, base: str = API_V3, key: Optional[str] = None, secret: Optional[str] = None) -> Any:
     params = params.copy() if params else {}
     params["timestamp"] = int(time.time() * 1000)
     s = _sign(params, secret or API_SECRET or "")
@@ -86,26 +131,13 @@ async def _signed_request(method: str, path: str, params: dict = None, base: str
     used_key = key or API_KEY
     if used_key:
         headers["X-MBX-APIKEY"] = used_key
+    url = path if path.startswith("http") else f"{base}{path}"
+    return await _request(method.upper(), url, params=params if method.upper() != "POST" else None, data=params if method.upper() == "POST" else None, headers=headers)
 
-    client = get_client()
-    url = f"{base}{path}" if not path.startswith("http") else path
-    async with _semaphore:
-        method = method.upper()
-        if method == "GET":
-            r = await client.get(url, params=params, headers=headers)
-        elif method == "POST":
-            r = await client.post(url, data=params, headers=headers)
-        elif method == "DELETE":
-            r = await client.delete(url, params=params, headers=headers)
-        else:
-            raise ValueError("Unsupported HTTP method for signed request")
-        r.raise_for_status()
-        return r.json()
-
-# Market REST
+# --------- Market REST ----------
 async def get_price(symbol: str) -> Optional[float]:
     try:
-        data = await _get("/ticker/price", params={"symbol": symbol})
+        data = await _get("/ticker/price", params={"symbol": symbol}, base=API_V3, cache_ttl=5.0)
         return float(data.get("price"))
     except Exception as e:
         LOG.warning("get_price %s failed: %s", symbol, e)
@@ -114,40 +146,41 @@ async def get_price(symbol: str) -> Optional[float]:
 async def get_24h_ticker(symbol: Optional[str] = None) -> Optional[dict]:
     try:
         params = {"symbol": symbol} if symbol else None
-        return await _get("/ticker/24hr", params=params)
+        return await _get("/ticker/24hr", params=params, base=API_V3, cache_ttl=5.0)
     except Exception as e:
         LOG.warning("get_24h_ticker %s failed: %s", symbol, e)
         return None
 
-
-
-# /ap icin
 async def get_all_24h_tickers() -> list:
-    """Tüm 24h ticker bilgilerini döndürür"""
-    # ... EKLENDİ: AP hesaplamalarında kullanılacak tüm ticker verilerini çekmek için
-    return await _get("/ticker/24hr")
-
-
-
-
+    """
+    Tüm 24h ticker'lar (cache'li). 429'u azaltmak için 10–15 sn cache önerilir.
+    """
+    return await _get("/ticker/24hr", base=API_V3, cache_ttl=float(os.getenv("BINANCE_TICKER_TTL", "12")))
 
 async def get_order_book(symbol: str, limit: int = 100) -> Optional[dict]:
     try:
-        return await _get("/depth", params={"symbol": symbol, "limit": limit})
+        return await _get("/depth", params={"symbol": symbol, "limit": limit}, base=API_V3)
     except Exception as e:
         LOG.warning("get_order_book %s failed: %s", symbol, e)
         return None
 
-async def get_klines(symbol: str, interval: str = "1h", limit: int = 500) -> Optional[List[List]]:
+async def get_klines(symbol: str, interval: str = "1d", limit: int = 200) -> Optional[List[List]]:
     try:
         params = {"symbol": symbol, "interval": interval, "limit": limit}
-        return await _get("/klines", params=params)
+        # Kline'lar da kısa TTL ile cache'lensin
+        return await _get("/klines", params=params, base=API_V3, cache_ttl=20.0)
     except Exception as e:
         LOG.warning("get_klines %s failed: %s", symbol, e)
         return None
 
-async def get_multiple_klines(symbols: List[str], interval: str = "1h", limit: int = 100) -> Dict[str, Optional[List[List]]]:
-    tasks = [get_klines(s, interval=interval, limit=limit) for s in symbols]
+async def get_multiple_klines(symbols: List[str], interval: str = "1d", limit: int = 60, concurrency: int = 8) -> Dict[str, Optional[List[List]]]:
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _one(sym: str):
+        async with sem:
+            return await get_klines(sym, interval=interval, limit=limit)
+
+    tasks = [_one(s) for s in symbols]
     res = await asyncio.gather(*tasks, return_exceptions=True)
     out: Dict[str, Optional[List[List]]] = {}
     for s, r in zip(symbols, res):
@@ -156,11 +189,8 @@ async def get_multiple_klines(symbols: List[str], interval: str = "1h", limit: i
 
 async def get_all_symbols() -> List[str]:
     try:
-        data = await _get("/exchangeInfo")
-        syms = []
-        for s in data.get("symbols", []):
-            if s.get("status") == "TRADING":
-                syms.append(s.get("symbol"))
+        data = await _get("/exchangeInfo", base=API_V3, cache_ttl=30.0)
+        syms = [s.get("symbol") for s in data.get("symbols", []) if s.get("status") == "TRADING"]
         return sorted(list(set(syms)))
     except Exception as e:
         LOG.warning("get_all_symbols failed: %s", e)
@@ -168,34 +198,32 @@ async def get_all_symbols() -> List[str]:
 
 async def exchange_info_details() -> Dict[str, Any]:
     try:
-        data = await _get("/exchangeInfo")
-        out = {}
-        for s in data.get("symbols", []):
-            out[s.get("symbol")] = s
-        return out
+        data = await _get("/exchangeInfo", base=API_V3, cache_ttl=30.0)
+        return {s.get("symbol"): s for s in data.get("symbols", [])}
     except Exception as e:
         LOG.warning("exchange_info_details failed: %s", e)
         return {}
 
-# Futures
+# --------- Futures ----------
 async def get_funding_rate(symbol: Optional[str] = None, limit: int = 100) -> Optional[Any]:
     try:
         params = {"limit": limit}
         if symbol:
             params["symbol"] = symbol
-        return await _get("/fapi/v1/fundingRate", params=params, base=FAPI_BASE)
+        # Bu endpoint FAPI'de /fapi/v1
+        return await _get("/fapi/v1/fundingRate", params=params, base=FAPI_BASE, cache_ttl=10.0)
     except Exception as e:
         LOG.warning("get_funding_rate %s failed: %s", symbol, e)
         return None
 
 async def get_open_interest(symbol: str) -> Optional[dict]:
     try:
-        return await _get("/fapi/v1/openInterest", params={"symbol": symbol}, base=FAPI_BASE)
+        return await _get("/fapi/v1/openInterest", params={"symbol": symbol}, base=FAPI_BASE, cache_ttl=5.0)
     except Exception as e:
         LOG.warning("get_open_interest %s failed: %s", symbol, e)
         return None
 
-# Signed trading helpers
+# --------- Signed (Spot + Futures) ----------
 async def create_spot_order(symbol: str, side: str, type_: str, quantity: Optional[float] = None, price: Optional[float] = None, extra: dict = None) -> Any:
     if not API_KEY or not API_SECRET:
         raise RuntimeError("Spot API key/secret not set in BINANCE_API_KEY/BINANCE_API_SECRET")
@@ -250,7 +278,7 @@ async def get_futures_account() -> Any:
         raise RuntimeError("Futures API key/secret not set")
     return await _signed_request("GET", "/fapi/v2/account", params={}, base=FAPI_BASE, key=FAPI_KEY, secret=FAPI_SECRET)
 
-# WebSocket combined stream
+# --------- WebSocket ----------
 async def _ws_listen(uri: str, message_handler: Callable[[dict], None], reconnect_delay: float = 1.0):
     if websockets is None:
         raise RuntimeError("websockets package required. pip install websockets")
@@ -302,7 +330,7 @@ class BinanceClient:
     async def price(self, symbol: str) -> Optional[float]:
         return await get_price(symbol)
 
-    async def kline(self, symbol: str, interval: str, limit: int = 500):
+    async def kline(self, symbol: str, interval: str, limit: int = 200):
         return await get_klines(symbol, interval=interval, limit=limit)
 
     async def funding(self, symbol: Optional[str] = None, limit: int = 100):
@@ -313,3 +341,4 @@ class BinanceClient:
 
     def start_combined(self, streams: List[str], handler: Callable[[dict], None]):
         return self.run_task(start_combined_stream(streams, handler))
+        
