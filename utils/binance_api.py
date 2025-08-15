@@ -204,6 +204,36 @@ async def exchange_info_details() -> Dict[str, Any]:
         LOG.warning("exchange_info_details failed: %s", e)
         return {}
 
+
+# --- eklemeler / değişiklikler utils/binance_api.py içine ---
+# (Dosyanın geri kalanını koruyun, aşağıdaki fonksiyonları uygun yere ekleyin.)
+
+async def get_recent_trades(symbol: str, limit: int = 500) -> Optional[List[dict]]:
+    """
+    Public recent trades endpoint (max 1000). 
+    Dönen trade objeleri: {id, price, qty, quoteQty (bazı versiyonlarda), time, isBuyerMaker, ...}
+    """
+    try:
+        params = {"symbol": symbol, "limit": limit}
+        return await _get("/trades", params=params, base=API_V3, cache_ttl=2.0)
+    except Exception as e:
+        LOG.warning("get_recent_trades %s failed: %s", symbol, e)
+        return None
+
+async def get_agg_trades(symbol: str, limit: int = 500) -> Optional[List[dict]]:
+    """
+    AggTrades endpoint (aggregated trades). Alternatif olarak kullanılabilir.
+    """
+    try:
+        params = {"symbol": symbol, "limit": limit}
+        return await _get("/aggTrades", params=params, base=API_V3, cache_ttl=2.0)
+    except Exception as e:
+        LOG.warning("get_agg_trades %s failed: %s", symbol, e)
+        return None
+
+# (Varsa: get_order_book zaten dosyada var — ap_utils bu fonksiyonu kullanacak)
+# get_order_book(symbol, limit) mevcut.
+        
 # --------- Futures ----------
 async def get_funding_rate(symbol: Optional[str] = None, limit: int = 100) -> Optional[Any]:
     try:
