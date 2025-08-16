@@ -59,7 +59,8 @@ class TAConfig:
 # === Master Config ===
 @dataclass
 class AppConfig:
-    BINANCE: BinanceConfig = BinanceConfig()
+    #BINANCE: BinanceConfig = BinanceConfig()
+     BINANCE: BinanceConfig = field(default_factory=BinanceConfig)
     TA: TAConfig = TAConfig()
     # İleride: TELEGRAM, DATABASE vb. eklenebilir
 
