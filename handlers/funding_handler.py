@@ -1,33 +1,24 @@
-# handlers/funding_handler.py
-# 📊 Binance Funding Rate Handler
-# Plugin loader uyumlu, hem komut hem stream/polling verisi için
-
+##funding_handler.py tamamen uyumlu, aynı zamanda top 10 funding rate raporunu çıkarabiliyor.
+#Telegram botta /funding BTC ETH gibi çağrılar çalışır.
+#
 
 import asyncio
 import logging
 from datetime import datetime
 from typing import List, Optional, Union
 
-
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
-from utils import binance_api
+from utils.binance_api import binance_api
 
 LOG = logging.getLogger("funding_handler")
-
-# Aynı anda sorgulanacak sembol sayısı
 _CONCURRENCY = 12
-
 
 # -------------------------------------------------
 # Yardımcı Fonksiyonlar
 # -------------------------------------------------
 def _normalize_symbols(input_syms: Optional[Union[str, List[str]]]) -> Optional[List[str]]:
-    """
-    input_syms: None | "btc eth" | ["btc","eth"] | ["BTCUSDT"]
-    dönüş: None veya USDT ile biten büyük harfli semboller listesi
-    """
     if not input_syms:
         return None
     if isinstance(input_syms, str):
@@ -44,9 +35,7 @@ def _normalize_symbols(input_syms: Optional[Union[str, List[str]]]) -> Optional[
         out.append(s)
     return out if out else None
 
-
 async def _fetch_rate_for_symbol(sym: str, sem: asyncio.Semaphore):
-    """Tek sembol için funding rate getirir."""
     async with sem:
         try:
             data = await binance_api.get_funding_rate(symbol=sym, limit=1)
@@ -60,18 +49,12 @@ async def _fetch_rate_for_symbol(sym: str, sem: asyncio.Semaphore):
             LOG.debug("Fetch funding failed for %s: %s", sym, e)
             return None
 
-
 # -------------------------------------------------
 # Ana Rapor Fonksiyonu
 # -------------------------------------------------
 async def funding_report(symbols: Optional[Union[str, List[str]]] = None) -> str:
-    """
-    Eğer symbols None ise, tüm USDT perpetual semboller arasından mutlak değere göre
-    en yüksek 10 taneyi döner. Eğer symbols verilirse sadece istenenler sorgulanır.
-    """
     try:
         user_syms = _normalize_symbols(symbols)
-
         all_symbols = await binance_api.get_all_symbols()
         futures_symbols = [s for s in all_symbols if s.endswith("USDT")]
 
@@ -96,7 +79,6 @@ async def funding_report(symbols: Optional[Union[str, List[str]]] = None) -> str
 
         avg_rate = sum(r["rate"] for r in results) / len(results)
 
-        # Liste oluştur
         lines = []
         for r in results:
             arrow = "🔼" if r["rate"] > 0 else ("🔻" if r["rate"] < 0 else "⚪")
@@ -123,59 +105,10 @@ async def funding_report(symbols: Optional[Union[str, List[str]]] = None) -> str
         LOG.exception("funding_report hata")
         return f"❌ Funding raporu hatası: {e}"
 
-
-# -------------------------------------------------
-# Stream / Polling Data İşleyici
-# -------------------------------------------------
-async def handle_funding_data(data):
-    """
-    Stream veya polling ile gelen data burada işlenir.
-    Beklenen formatlar:
-      - WebSocket kısa format: {'s': 'BTCUSDT', 'r': '0.0001', 'T': 166...}
-      - REST/polling format: {'symbol': 'BTCUSDT', 'fundingRate': '0.0001', 'fundingTime': 166...}
-      - get_funding_rate() list formatı
-    """
-    try:
-        if isinstance(data, list):
-            for item in data:
-                if not isinstance(item, dict):
-                    continue
-                sym = item.get("symbol") or item.get("s")
-                rate = item.get("fundingRate") or item.get("r")
-                time_ms = item.get("fundingTime") or item.get("T")
-                if sym and rate is not None:
-                    try:
-                        rate_f = float(rate) * 100.0
-                        ts = datetime.fromtimestamp(int(time_ms) / 1000).strftime("%Y-%m-%d %H:%M") if time_ms else "-"
-                        LOG.info("[FUNDING][POLL] %s: %.4f%% @ %s", sym, rate_f, ts)
-                    except Exception:
-                        LOG.debug("Malformed funding item: %s", item)
-            return
-
-        if isinstance(data, dict):
-            if ("s" in data and "r" in data) or ("symbol" in data and "fundingRate" in data):
-                sym = data.get("s") or data.get("symbol")
-                rate = data.get("r") or data.get("fundingRate")
-                time_ms = data.get("T") or data.get("fundingTime")
-                try:
-                    rate_f = float(rate) * 100.0
-                    ts = datetime.fromtimestamp(int(time_ms) / 1000).strftime("%Y-%m-%d %H:%M") if time_ms else "-"
-                    LOG.info("[FUNDING] %s: %.4f%% @ %s", sym, rate_f, ts)
-                except Exception:
-                    LOG.debug("Malformed funding dict: %s", data)
-                return
-
-        LOG.debug("Tanınmayan funding formatı: %s", data)
-
-    except Exception as e:
-        LOG.exception("handle_funding_data hata: %s", e)
-
-
 # -------------------------------------------------
 # Telegram Komutu
 # -------------------------------------------------
 async def _cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Telegram komutu: /funding veya /fr"""
     try:
         symbols = context.args if context.args else None
         text = await funding_report(symbols)
@@ -183,11 +116,9 @@ async def _cmd_funding(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Hata: {e}")
 
-
 # -------------------------------------------------
 # Plugin Loader Entry
 # -------------------------------------------------
 def register(application):
-    """Plugin loader uyumlu kayıt fonksiyonu"""
     application.add_handler(CommandHandler(["funding", "f","fr"], _cmd_funding))
     LOG.info("Funding handler registered.")
