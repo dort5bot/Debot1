@@ -23,12 +23,12 @@ load_dotenv(ENV_PATH, override=True)
 # === Binance Config ===
 @dataclass
 class BinanceConfig:
-   # BASE_URL: str = "https://api.binance.com/api/v3"
-   # FAPI_URL: str = "https://fapi.binance.com/fapi/v1"
+   # BASE_URL: str = "https://api.binance.com/api/v3"        # spot REST
+   # FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST
+   BASE_URL: str = "https://api.binance.com/"        # spot REST
+   FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
 
-    BASE_FUTURES = "https://fapi.binance.com"        # futures REST+
-    BASE_SPOT = "https://api.binance.com"            # spot REST yok
-    WS_FUTURES = "wss://fstream.binance.com/stream"  # futures combined stream+
+   #WS_FUTURES = "wss://fstream.binance.com/stream"  # futures combined stream+ yok
     
     API_KEY: Optional[str] = os.getenv("BINANCE_API_KEY")
     SECRET_KEY: Optional[str] = os.getenv("BINANCE_SECRET_KEY")
