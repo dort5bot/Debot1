@@ -3,19 +3,30 @@
 #  Deploy sırasında hiçbir ImportError oluşmayacak.
 #  İleriye dönük olarak .env üzerinden bu değerleri değiştirmek yeterli.
 
+# utils/config.py
+# Bot başlatıldığında .env’den API Key ve Secret Key’i okur.
+# /apikey komutu ile runtime + kalıcı olarak güncelleme yapılabilir.
+# Yetkisiz kullanıcıların erişimi engellenir.
+# Yapı tamamen mevcut CONFIG ve handler sistemini bozmadan entegre olur.
+# Böylece hem güvenli hem de kalıcı bir API Key yönetimi sağlanmış olur.
 
+    
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 
-load_dotenv()
+# --- .env yükle ---
+ENV_PATH = ".env"
+load_dotenv(ENV_PATH, override=True)
 
 # === Binance Config ===
 @dataclass
 class BinanceConfig:
     BASE_URL: str = "https://api.binance.com/api/v3"
     FAPI_URL: str = "https://fapi.binance.com/fapi/v1"
+    API_KEY: Optional[str] = os.getenv("BINANCE_API_KEY")
+    SECRET_KEY: Optional[str] = os.getenv("BINANCE_SECRET_KEY")
     CONCURRENCY: int = int(os.getenv("BINANCE_CONCURRENCY", 8))
     TRADES_LIMIT: int = int(os.getenv("TRADES_LIMIT", 500))
     WHALE_USD_THRESHOLD: float = float(os.getenv("WHALE_USD_THRESHOLD", 50000))
@@ -24,16 +35,16 @@ class BinanceConfig:
     )
     IO_CONCURRENCY: int = int(os.getenv("IO_CONCURRENCY", 5))
     BINANCE_TICKER_TTL: int = int(os.getenv("BINANCE_TICKER_TTL", 5))
-    STREAM_INTERVAL: str = os.getenv("STREAM_INTERVAL", "1m")  # yenilendi
+    STREAM_INTERVAL: str = os.getenv("STREAM_INTERVAL", "1m")
 
 # === Bot Config ===
 @dataclass
 class BotConfig:
     PAPER_MODE: bool = os.getenv("PAPER_MODE", "true").lower() == "true"
-    EVALUATOR_WINDOW: int = int(os.getenv("EVALUATOR_WINDOW", 60))      # saniye
-    EVALUATOR_THRESHOLD: float = float(os.getenv("EVALUATOR_THRESHOLD", 0.5))  # örnek eşik
+    EVALUATOR_WINDOW: int = int(os.getenv("EVALUATOR_WINDOW", 60))
+    EVALUATOR_THRESHOLD: float = float(os.getenv("EVALUATOR_THRESHOLD", 0.5))
 
-# === TA (Technical Analysis) Config ===
+# === TA Config ===
 @dataclass
 class TAConfig:
     EMA_PERIODS: List[int] = field(
@@ -77,4 +88,14 @@ class AppConfig:
     DATABASE: DatabaseConfig = field(default_factory=DatabaseConfig)
 
 CONFIG = AppConfig()
+
+
+# --- Fonksiyon: .env ve CONFIG güncelleme ---
+def update_binance_keys(api_key: str, secret_key: str):
+    CONFIG.BINANCE.API_KEY = api_key
+    CONFIG.BINANCE.SECRET_KEY = secret_key
+    if os.path.exists(ENV_PATH):
+        set_key(ENV_PATH, "BINANCE_API_KEY", api_key)
+        set_key(ENV_PATH, "BINANCE_SECRET_KEY", secret_key)
+        load_dotenv(ENV_PATH, override=True)
 
