@@ -9,7 +9,10 @@
 # Yetkisiz kullanıcıların erişimi engellenir.
 # Yapı tamamen mevcut CONFIG ve handler sistemini bozmadan entegre olur.
 # Böylece hem güvenli hem de kalıcı bir API Key yönetimi sağlanmış olur.
-
+# BASE_URL: str = "https://api.binance.com/api/v3"        # spot REST
+# FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST  REVİZE
+   #BASE_URL: str = "https://api.binance.com/"        # spot REST
+   #FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
     
 import os
 from dataclasses import dataclass, field
@@ -23,13 +26,8 @@ load_dotenv(ENV_PATH, override=True)
 # === Binance Config ===
 @dataclass
 class BinanceConfig:
-   # BASE_URL: str = "https://api.binance.com/api/v3"        # spot REST
-   # FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST
-   BASE_URL: str = "https://api.binance.com/"        # spot REST
-   FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
-
-   #WS_FUTURES = "wss://fstream.binance.com/stream"  # futures combined stream+ yok
-    
+    BASE_URL: str = "https://api.binance.com/"
+    FAPI_URL: str = "https://fapi.binance.com/"
     API_KEY: Optional[str] = os.getenv("BINANCE_API_KEY")
     SECRET_KEY: Optional[str] = os.getenv("BINANCE_SECRET_KEY")
     CONCURRENCY: int = int(os.getenv("BINANCE_CONCURRENCY", 8))
