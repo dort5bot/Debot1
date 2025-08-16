@@ -1,8 +1,8 @@
-# # utils/config.py
+# utils/config.py 16/08 18:36
 
 import os
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -44,7 +44,7 @@ class TAConfig:
     ATR_PERIOD: int = int(os.getenv("ATR_PERIOD", 14))
     BB_PERIOD: int = int(os.getenv("BB_PERIOD", 20))
     BB_STDDEV: float = float(os.getenv("BB_STDDEV", 2))
-    SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))  # %2 varsayılan
+    SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))
 
     # --- Hacim & Likidite ---
     OBV_ENABLED: bool = os.getenv("OBV_ENABLED", "true").lower() == "true"
@@ -56,13 +56,26 @@ class TAConfig:
     SOCIAL_SENTIMENT_ENABLED: bool = os.getenv("SOCIAL_SENTIMENT_ENABLED", "false").lower() == "true"
 
 
+# === Telegram Config ===
+@dataclass
+class TelegramConfig:
+    BOT_TOKEN: Optional[str] = os.getenv("TELEGRAM_BOT_TOKEN")
+    ALERT_CHAT_ID: Optional[str] = os.getenv("ALERT_CHAT_ID")
+
+
+# === Database Config ===
+@dataclass
+class DatabaseConfig:
+    DB_PATH: str = os.getenv("DB_PATH", "data/bot.db")
+
+
 # === Master Config ===
 @dataclass
 class AppConfig:
-    #BINANCE: BinanceConfig = BinanceConfig()
-     BINANCE: BinanceConfig = field(default_factory=BinanceConfig)
-    TA: TAConfig = TAConfig()
-    # İleride: TELEGRAM, DATABASE vb. eklenebilir
+    BINANCE: BinanceConfig = field(default_factory=BinanceConfig)
+    TA: TAConfig = field(default_factory=TAConfig)
+    TELEGRAM: TelegramConfig = field(default_factory=TelegramConfig)
+    DATABASE: DatabaseConfig = field(default_factory=DatabaseConfig)
 
 
 CONFIG = AppConfig()
