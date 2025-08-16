@@ -1,5 +1,4 @@
-# utils/binance_api.py 308
-
+# utils/binance_api.py
 
 import os
 import time
@@ -20,6 +19,7 @@ from utils.config import CONFIG
 # -------------------------------------------------------------
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
+
 
 # -------------------------------------------------------------
 # HTTP Katmanı: Retry + Exponential Backoff + TTL Cache
@@ -86,7 +86,12 @@ class BinanceClient:
     """
     def __init__(self):
         self.http = http
-        self.loop = asyncio.get_running_loop()
+        # Async loop yoksa yarat
+        try:
+            self.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            self.loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self.loop)
         self.ws_tasks: List[asyncio.Task] = []
 
     # --- REST ---
@@ -156,6 +161,10 @@ class BinanceClient:
     async def ws_order_book(self, symbol: str, depth: int, callback):
         url = f"wss://stream.binance.com:9443/ws/{symbol.lower()}@depth{depth}@100ms"
         await self.ws_subscribe(url, callback)
+
+    # -------------------------------------------------------------
+    # Temel + Pro Metrikler ve diğer metotlar...
+    # -------------------------------------------------------------
 
     # -------------------------------------------------------------
     # Temel Metrikler
@@ -307,5 +316,16 @@ class BinanceClient:
         return {s: r for s, r in zip(symbols, results)}
 
 
-# Singleton instance
-binance_api = BinanceClient()
+# -------------------------------------------------------------
+# Singleton instance güvenli oluşturma
+# -------------------------------------------------------------
+binance_api: BinanceClient | None = None
+
+def get_binance_api() -> BinanceClient:
+    """
+    Singleton erişim. Eğer loop yoksa burada yaratılır.
+    """
+    global binance_api
+    if binance_api is None:
+        binance_api = BinanceClient()
+    return binance_api
