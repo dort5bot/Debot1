@@ -1,7 +1,4 @@
-##funding_handler.py tamamen uyumlu, aynı zamanda top 10 funding rate raporunu çıkarabiliyor.
-#Telegram botta /funding BTC ETH gibi çağrılar çalışır.
-#
-
+# handlers/funding_handler.py
 import asyncio
 import logging
 from datetime import datetime
@@ -13,6 +10,8 @@ from telegram.ext import CommandHandler, ContextTypes
 from utils.binance_api import binance_api
 
 LOG = logging.getLogger("funding_handler")
+LOG.addHandler(logging.NullHandler())
+
 _CONCURRENCY = 12
 
 # -------------------------------------------------
@@ -104,6 +103,19 @@ async def funding_report(symbols: Optional[Union[str, List[str]]] = None) -> str
     except Exception as e:
         LOG.exception("funding_report hata")
         return f"❌ Funding raporu hatası: {e}"
+
+# -------------------------------------------------
+# Bridge / Periodic Callback Fonksiyonu
+# -------------------------------------------------
+async def handle_funding_data(data):
+    """
+    WS veya polling ile gelen funding verilerini işleme.
+    Mevcut yapı sadece log atar; ihtiyaç varsa queue veya başka işleme eklenebilir.
+    """
+    try:
+        LOG.info("Funding data received: %s", data)
+    except Exception:
+        LOG.exception("handle_funding_data error")
 
 # -------------------------------------------------
 # Telegram Komutu
