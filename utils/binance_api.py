@@ -13,7 +13,8 @@ import websockets
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
-from config import CONFIG
+from utils.config import CONFIG
+
 
 # -------------------------------------------------------------
 # Logger
