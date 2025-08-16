@@ -1,10 +1,9 @@
 # utils/stream_manager.py
-##♦️ grouped compinet streams,http falback scheduler
-
+##♦️ grouped combined streams, http fallback scheduler
 
 import asyncio
 from typing import List, Callable
-from utils.config import STREAM_GROUP_SIZE
+from utils.config import CONFIG
 from utils.binance_api import BinanceClient
 import logging
 import time
@@ -22,9 +21,10 @@ class StreamManager:
         self.tasks = []
 
     def group_streams(self, streams: List[str]) -> List[List[str]]:
+        group_size = CONFIG.BINANCE.IO_CONCURRENCY  # eski STREAM_GROUP_SIZE yerine
         groups = []
-        for i in range(0, len(streams), STREAM_GROUP_SIZE):
-            groups.append(streams[i:i+STREAM_GROUP_SIZE])
+        for i in range(0, len(streams), group_size):
+            groups.append(streams[i:i+group_size])
         return groups
 
     def start_combined_groups(self, streams: List[str], message_handler: Callable):
