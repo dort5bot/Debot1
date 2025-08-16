@@ -1,67 +1,67 @@
-# utils/config.py
+# # utils/config.py
+
+import os
 from dataclasses import dataclass, field
 from typing import List
-import os
 from dotenv import load_dotenv
 
-# --- Load dotenv ---
-ENV_PATH = os.getenv("ENV_PATH", ".env")
-load_dotenv(ENV_PATH)
+load_dotenv()
 
-def get_env(key: str, default=None, cast=None):
-    """Env değerini oku ve opsiyonel tip dönüşümü yap."""
-    val = os.getenv(key, default)
-    if val is not None and cast:
-        try:
-            if cast == bool:
-                val = str(val).lower() in ("1", "true", "yes")
-            elif cast == list:
-                val = [s.strip().upper() for s in str(val).split(",")]
-            else:
-                val = cast(val)
-        except Exception:
-            pass
-    return val
 
-# ----------------------------
-# Dataclass bazlı config
-# ----------------------------
-
+# === Binance Config ===
 @dataclass
 class BinanceConfig:
-    """Binance API ve stream parametreleri"""
-    API_KEY: str = field(default_factory=lambda: get_env("BINANCE_API_KEY", ""))
-    API_SECRET: str = field(default_factory=lambda: get_env("BINANCE_API_SECRET", ""))
-    FAPI_KEY: str = field(default_factory=lambda: get_env("BINANCE_FAPI_KEY", get_env("BINANCE_API_KEY", "")))
-    FAPI_SECRET: str = field(default_factory=lambda: get_env("BINANCE_FAPI_SECRET", get_env("BINANCE_API_SECRET", "")))
-    CONCURRENCY: int = field(default_factory=lambda: get_env("BINANCE_CONCURRENCY", 8, int))
-    TICKER_TTL: float = field(default_factory=lambda: get_env("BINANCE_TICKER_TTL", 12.0, float))
+    BASE_URL: str = "https://api.binance.com/api/v3"
+    FAPI_URL: str = "https://fapi.binance.com/fapi/v1"
+    CONCURRENCY: int = int(os.getenv("BINANCE_CONCURRENCY", 8))
+    TRADES_LIMIT: int = int(os.getenv("TRADES_LIMIT", 500))
+    WHALE_USD_THRESHOLD: float = float(os.getenv("WHALE_USD_THRESHOLD", 50000))
+    TOP_SYMBOLS_FOR_IO: List[str] = field(
+        default_factory=lambda: os.getenv("TOP_SYMBOLS_FOR_IO", "BTCUSDT,ETHUSDT").split(",")
+    )
+    IO_CONCURRENCY: int = int(os.getenv("IO_CONCURRENCY", 5))
+    BINANCE_TICKER_TTL: int = int(os.getenv("BINANCE_TICKER_TTL", 5))
 
+
+# === TA (Technical Analysis) Config ===
 @dataclass
-class APIOConfig:
-    """AP / IO parametreleri"""
-    WHALE_USD_THRESHOLD: float = field(default_factory=lambda: get_env("WHALE_USD_THRESHOLD", 50000.0, float))
-    TRADES_LIMIT: int = field(default_factory=lambda: get_env("TRADES_LIMIT", 500, int))
-    TOP_SYMBOLS_FOR_IO: int = field(default_factory=lambda: get_env("TOP_SYMBOLS_FOR_IO", 30, int))
-    IO_CONCURRENCY: int = field(default_factory=lambda: get_env("IO_CONCURRENCY", 8, int))
+class TAConfig:
+    # --- Trend ---
+    EMA_PERIODS: List[int] = field(
+        default_factory=lambda: [int(x) for x in os.getenv("EMA_PERIODS", "20,50,200").split(",")]
+    )
+    MACD_FAST: int = int(os.getenv("MACD_FAST", 12))
+    MACD_SLOW: int = int(os.getenv("MACD_SLOW", 26))
+    MACD_SIGNAL: int = int(os.getenv("MACD_SIGNAL", 9))
+    ADX_PERIOD: int = int(os.getenv("ADX_PERIOD", 14))
 
+    # --- Momentum ---
+    RSI_PERIOD: int = int(os.getenv("RSI_PERIOD", 14))
+    STOCH_K: int = int(os.getenv("STOCH_K", 14))
+    STOCH_D: int = int(os.getenv("STOCH_D", 3))
+
+    # --- Volatilite & Risk ---
+    ATR_PERIOD: int = int(os.getenv("ATR_PERIOD", 14))
+    BB_PERIOD: int = int(os.getenv("BB_PERIOD", 20))
+    BB_STDDEV: float = float(os.getenv("BB_STDDEV", 2))
+    SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))  # %2 varsayılan
+
+    # --- Hacim & Likidite ---
+    OBV_ENABLED: bool = os.getenv("OBV_ENABLED", "true").lower() == "true"
+    OBI_DEPTH: int = int(os.getenv("OBI_DEPTH", 20))
+    OPEN_INTEREST_ENABLED: bool = os.getenv("OPEN_INTEREST_ENABLED", "true").lower() == "true"
+
+    # --- Sentiment ---
+    FUNDING_RATE_ENABLED: bool = os.getenv("FUNDING_RATE_ENABLED", "true").lower() == "true"
+    SOCIAL_SENTIMENT_ENABLED: bool = os.getenv("SOCIAL_SENTIMENT_ENABLED", "false").lower() == "true"
+
+
+# === Master Config ===
 @dataclass
-class BotConfig:
-    """Genel bot parametreleri"""
-    DEBUG: bool = field(default_factory=lambda: get_env("DEBUG", False, bool))
-    PAPER_MODE: bool = field(default_factory=lambda: get_env("PAPER_MODE", True, bool))
-    STREAM_SYMBOLS: List[str] = field(default_factory=lambda: get_env("STREAM_SYMBOLS", "BTCUSDT,ETHUSDT", list))
-    STREAM_INTERVAL: str = field(default_factory=lambda: get_env("STREAM_INTERVAL", "1m"))
-    DB_PATH: str = field(default_factory=lambda: get_env("DB_PATH", "data/paper_trades.db"))
-    TELEGRAM_BOT_TOKEN: str = field(default_factory=lambda: get_env("TELEGRAM_BOT_TOKEN", ""))
-    STREAM_GROUP_SIZE: int = field(default_factory=lambda: get_env("STREAM_GROUP_SIZE", 60, int))
-    EVALUATOR_WINDOW: int = field(default_factory=lambda: get_env("EVALUATOR_WINDOW", 12, int))
-    EVALUATOR_THRESHOLD: float = field(default_factory=lambda: get_env("EVALUATOR_THRESHOLD", 0.25, float))
-    RISK_MAX_DAILY_LOSS: float = field(default_factory=lambda: get_env("RISK_MAX_DAILY_LOSS", 0.05, float))
+class AppConfig:
+    BINANCE: BinanceConfig = BinanceConfig()
+    TA: TAConfig = TAConfig()
+    # İleride: TELEGRAM, DATABASE vb. eklenebilir
 
-# ----------------------------
-# Config instance’ları
-# ----------------------------
-BINANCE = BinanceConfig()
-APIO = APIOConfig()
-BOT = BotConfig()
+
+CONFIG = AppConfig()
