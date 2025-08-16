@@ -4,6 +4,11 @@
 # - Kapanışta cancel + await (Task was destroyed... hatası yok)
 # - Plugin/handler loader uyumlu
 # - Keep-alive web server ayrı thread'de
+# - Tüm parametreler (STREAM_SYMBOLS, STREAM_INTERVAL, PAPER_MODE, EVALUATOR_WINDOW, EVALUATOR_THRESHOLD) config üzerinden okunuyor.
+# - ImportError veya eski değişken eksiklikleri ortadan kalktı.
+# - .env dosyası ile kolayca değerleri değiştirebilirsin.
+
+
 
 import asyncio
 import os
@@ -16,13 +21,7 @@ from telegram.ext import ApplicationBuilder
 from keep_alive import keep_alive
 from utils.db import init_db
 from utils.monitoring import configure_logging
-from utils.config import (
-    STREAM_SYMBOLS,
-    STREAM_INTERVAL,
-    EVALUATOR_WINDOW,
-    EVALUATOR_THRESHOLD,
-    PAPER_MODE,
-)
+from utils.config import CONFIG
 from utils.handler_loader import load_handlers
 from utils.binance_api import BinanceClient
 from utils.stream_manager import StreamManager
@@ -45,7 +44,7 @@ async def async_main():
     LOG.info("Booting bot...")
     init_db()
 
-    token = os.getenv("TELEGRAM_BOT_TOKEN")
+    token = CONFIG.TELEGRAM.BOT_TOKEN
     if not token:
         LOG.error("TELEGRAM_BOT_TOKEN is not set. Exiting.")
         return
@@ -61,7 +60,7 @@ async def async_main():
     # --- Core services created inside running loop (loop uyumu için) ---
     bin_client = BinanceClient()
     stream_mgr = StreamManager(bin_client, loop=loop)
-    order_manager = OrderManager(paper_mode=PAPER_MODE)
+    order_manager = OrderManager(paper_mode=CONFIG.BOT.PAPER_MODE)
 
     # SignalEvaluator: loop uyumu için burada oluştur
     from utils.signal_evaluator import SignalEvaluator
@@ -69,6 +68,10 @@ async def async_main():
     async def decision_cb(decision: Dict):
         # Order routing burada
         return await order_manager.process_decision(decision)
+
+    # Config üzerinden değerler
+    EVALUATOR_WINDOW = CONFIG.BOT.EVALUATOR_WINDOW
+    EVALUATOR_THRESHOLD = CONFIG.BOT.EVALUATOR_THRESHOLD
 
     evaluator = SignalEvaluator(
         decision_callback=decision_cb,
@@ -78,6 +81,8 @@ async def async_main():
     )
 
     # Strategies & data queue
+    STREAM_SYMBOLS = CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO
+    STREAM_INTERVAL = CONFIG.BINANCE.STREAM_INTERVAL
     strategies: Dict[str, RSI_MACD_Strategy] = {sym: RSI_MACD_Strategy(sym) for sym in STREAM_SYMBOLS}
     kline_queue: asyncio.Queue = asyncio.Queue()
 
@@ -153,7 +158,11 @@ async def async_main():
     kline_task = asyncio.create_task(kline_processor(), name="kline_processor")
     background_tasks.append(kline_task)
 
-    LOG.info("Services started. PAPER_MODE=%s | Streams=%s", PAPER_MODE, ", ".join(STREAM_SYMBOLS))
+    LOG.info(
+        "Services started. PAPER_MODE=%s | Streams=%s",
+        CONFIG.BOT.PAPER_MODE,
+        ", ".join(STREAM_SYMBOLS),
+    )
 
     # --- Graceful shutdown mechanics ---
     stop_event = asyncio.Event()
@@ -185,11 +194,8 @@ async def async_main():
 
     # --- Stop background services ---
     LOG.info("Stopping background services...")
-    # Stop evaluator loop
     evaluator.stop()
-    # Cancel stream manager tasks
     stream_mgr.cancel_all()
-    # Cancel our background tasks
     for t in background_tasks:
         t.cancel()
 
@@ -211,5 +217,4 @@ async def async_main():
 
 # -------------------------------
 if __name__ == "__main__":
-    # Tek ve temiz event loop
     asyncio.run(async_main())
