@@ -1,65 +1,114 @@
+# plugin/handler loader sistemine uyumlu
+# Kullanıcı bazlı + global API Key, alarm ve trade ayarları tek dosyada yönetilebilir.
+# /apikey, /set_alarm, /get_alarm, /set_trade, /get_trade komutları ile bütünleşik.
+
+
+
 # handlers/apikey_handler.py
-# API Key ve kullanıcı ayarları yönetimi
-import logging
-from telegram import Update
-from telegram.ext import ContextTypes, CommandHandler
-
+from telegram.ext import CommandHandler
+from utils.config import CONFIG, update_binance_keys, ENV_PATH
 from utils.apikey_utils import (
-    add_or_update_apikey,
-    get_apikey,
-    set_alarm_settings,
-    set_trade_settings
+    add_or_update_apikey, get_apikey,
+    set_alarm_settings, get_alarm_settings,
+    set_trade_settings, get_trade_settings
 )
+import os
+from dotenv import set_key, load_dotenv
+import json
 
-LOG = logging.getLogger("apikey_handler")
-LOG.addHandler(logging.NullHandler())
+AUTHORIZED_USERS = [123456789]  # Global bot key yetkili kullanıcılar
 
-COMMANDS = {
-    "apikey": "/apikey <API_KEY> — API anahtarınızı kaydeder veya günceller.",
-    "setalarm": "/setalarm <ayar> — Alarm ayarınızı kaydeder.",
-    "settrade": "/settrade <ayar> — Trade ayarınızı kaydeder."
-}
+# --- API Key Komutu ---
+async def apikey(update, context):
+    user_id = update.effective_user.id
 
-
-async def apikey_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kullanıcının API key'ini kaydeder veya günceller"""
-    if len(context.args) != 1:
-        await update.message.reply_text(COMMANDS["apikey"])
+    if len(context.args) != 2:
+        await update.message.reply_text("Kullanım: /apikey <API_KEY> <SECRET_KEY>")
         return
 
-    api_key = context.args[0]
-    add_or_update_apikey(update.effective_user.id, api_key)
-    LOG.info(f"API key kaydedildi | user_id={update.effective_user.id}")
-    await update.message.reply_text("✅ API Key başarıyla kaydedildi.")
+    api_key, secret_key = context.args
+
+    # Kullanıcı bazlı kaydet
+    add_or_update_apikey(user_id, f"{api_key}:{secret_key}")
+
+    # Global key güncelleme yetkisi
+    if user_id in AUTHORIZED_USERS:
+        update_binance_keys(api_key, secret_key)
+        if os.path.exists(ENV_PATH):
+            set_key(ENV_PATH, "BINANCE_API_KEY", api_key)
+            set_key(ENV_PATH, "BINANCE_SECRET_KEY", secret_key)
+            load_dotenv(ENV_PATH, override=True)
+        await update.message.reply_text(
+            "Global bot key güncellendi ve DB’ye kaydedildi."
+        )
+    else:
+        await update.message.reply_text("Kullanıcı bazlı API Key DB’ye kaydedildi.")
 
 
-async def setalarm_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kullanıcının alarm ayarlarını kaydeder"""
+# --- Alarm Ayarları ---
+async def set_alarm(update, context):
+    user_id = update.effective_user.id
     if not context.args:
-        await update.message.reply_text(COMMANDS["setalarm"])
+        await update.message.reply_text("Kullanım: /set_alarm <JSON>")
         return
+    try:
+        settings = json.loads(" ".join(context.args))
+        set_alarm_settings(user_id, settings)
+        await update.message.reply_text("Alarm ayarları kaydedildi.")
+    except json.JSONDecodeError:
+        await update.message.reply_text("Geçersiz JSON formatı.")
 
-    settings = " ".join(context.args)
-    set_alarm_settings(update.effective_user.id, settings)
-    LOG.info(f"Alarm ayarı kaydedildi | user_id={update.effective_user.id}, settings={settings}")
-    await update.message.reply_text(f"⏰ Alarm ayarınız kaydedildi: {settings}")
+
+async def get_alarm(update, context):
+    user_id = update.effective_user.id
+    settings = get_alarm_settings(user_id)
+    if settings:
+        await update.message.reply_text(f"Alarm ayarları:\n{json.dumps(settings, indent=2)}")
+    else:
+        await update.message.reply_text("Hiç alarm ayarı bulunamadı.")
 
 
-async def settrade_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Kullanıcının trade ayarlarını kaydeder"""
+# --- Trade Ayarları ---
+async def set_trade(update, context):
+    user_id = update.effective_user.id
     if not context.args:
-        await update.message.reply_text(COMMANDS["settrade"])
+        await update.message.reply_text("Kullanım: /set_trade <JSON>")
         return
+    try:
+        settings = json.loads(" ".join(context.args))
+        set_trade_settings(user_id, settings)
+        await update.message.reply_text("Trade ayarları kaydedildi.")
+    except json.JSONDecodeError:
+        await update.message.reply_text("Geçersiz JSON formatı.")
 
-    settings = " ".join(context.args)
-    set_trade_settings(update.effective_user.id, settings)
-    LOG.info(f"Trade ayarı kaydedildi | user_id={update.effective_user.id}, settings={settings}")
-    await update.message.reply_text(f"💹 Trade ayarınız kaydedildi: {settings}")
+
+async def get_trade(update, context):
+    user_id = update.effective_user.id
+    settings = get_trade_settings(user_id)
+    if settings:
+        await update.message.reply_text(f"Trade ayarları:\n{json.dumps(settings, indent=2)}")
+    else:
+        await update.message.reply_text("Hiç trade ayarı bulunamadı.")
 
 
+# --- Handler nesneleri ---
+apikey_handler = CommandHandler("apikey", apikey)
+set_alarm_handler = CommandHandler("set_alarm", set_alarm)
+get_alarm_handler = CommandHandler("get_alarm", get_alarm)
+set_trade_handler = CommandHandler("set_trade", set_trade)
+get_trade_handler = CommandHandler("get_trade", get_trade)
+
+# --- Loader uyumlu register fonksiyonu ---
 def register(application):
-    """Plugin loader için komut kayıt fonksiyonu"""
-    application.add_handler(CommandHandler("apikey", apikey_cmd))
-    application.add_handler(CommandHandler("setalarm", setalarm_cmd))
-    application.add_handler(CommandHandler("settrade", settrade_cmd))
-    
+    """
+    Handler loader ile uyumlu şekilde dispatcher’a ekler
+    """
+    handlers = [
+        apikey_handler,
+        set_alarm_handler,
+        get_alarm_handler,
+        set_trade_handler,
+        get_trade_handler
+    ]
+    for handler in handlers:
+        application.add_handler(handler)
