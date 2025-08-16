@@ -1,13 +1,15 @@
 # handlers/dar_handler.py
 # --------------------------------
-# /dar      -> Dosya ağacı
-# /dar L    -> Dosya içerikleri + bağımlılık bilgisi (ZIP ile)
+# /dar      -> Dosya ağacı (daha okunabilir)
+# /dar L    -> ZIP ile içerik + bağımlılık
 
 import os
-import zipfile
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
+
+ROOT_DIR = '.'
+TELEGRAM_MSG_LIMIT = 4000
 
 # Dosya uzantısı -> dil eşlemesi
 EXT_LANG_MAP = {
@@ -20,95 +22,71 @@ EXT_LANG_MAP = {
     '.html': 'HTML',
     '.css': 'CSS',
     '.json': 'JSON',
+    '.csv': 'CSV',
     '.sh': 'Shell',
     '.md': 'Markdown',
 }
 
-TELEGRAM_MSG_LIMIT = 4000  # Karakter limiti
-ROOT_DIR = '.'  # Bot root dizini
+# Dosya görevleri ve bağımlılık map (biliniyorsa)
+FILE_INFO = {
+    'main.py': ("Ana bot başlatma, handler kayıtları, JobQueue görevleri", None),
+    'keep_alive.py': ("Render Free ping sistemi (bot uyumasını önler)", None),
+    'io_handler.py': ("/io → In-Out Alış Satış Baskısı raporu", "utils.io_utils"),
+    'nls_handler.py': ("/nls → Balina hareketleri ve yoğunluk (NLS analizi)", None),
+    'npr_handler.py': ("/npr → Nakit Piyasa Raporu", None),
+    'eft_handler.py': ("/eft → ETF & ABD piyasaları", None),
+    'ap_handler.py': ("/ap → Altların Güç Endeksi (AP)", "utils.ap_utils"),
+    'price_handler.py': ("/p → Anlık fiyat, 24h değişim, hacim bilgisi", None),
+    'p_handler.py': ("/p_ekle, /p_fav, /p_sil → Favori coin listesi yönetimi", None),
+    'fr_handler.py': ("/fr → Funding Rate komutu ve günlük CSV kaydı", None),
+    'whale_handler.py': ("/whale → Whale Alerts komutu ve günlük CSV kaydı", None),
+    'binance_utils.py': ("Binance API'den veri çekme ve metrik fonksiyonlar", None),
+    'csv_utils.py': ("CSV okuma/yazma ve Funding Rate, Whale CSV kayıt fonksiyonları", None),
+    'trend_utils.py': ("Trend okları, yüzde değişim hesaplama ve formatlama", None),
+    'fav_list.json': (None, None),
+    'runtime.txt': (None, None),
+    '.env': (None, None),
+}
 
+def format_tree(root_dir):
+    tree_lines = []
 
-def get_dependencies(filepath, lang):
-    """Belirtilen dosyanın bağımlılıklarını okur."""
-    deps = []
-    try:
-        with open(filepath, 'r', encoding='utf-8') as f:
-            for line in f:
-                line = line.strip()
-                if lang == 'Python' and (line.startswith('import ') or line.startswith('from ')):
-                    deps.append(line)
-                elif lang in ['JavaScript', 'TypeScript'] and (line.startswith('import ') or 'require(' in line):
-                    deps.append(line)
-                elif lang in ['C', 'C++'] and line.startswith('#include'):
-                    deps.append(line)
-                elif lang == 'Java' and line.startswith('import '):
-                    deps.append(line)
-    except Exception:
-        deps.append('[Dependencies could not be read]')
-    return deps
+    def walk(dir_path, prefix=""):
+        items = sorted(os.listdir(dir_path))
+        for i, item in enumerate(items):
+            path = os.path.join(dir_path, item)
+            connector = "└── " if i == len(items) - 1 else "├── "
+            if os.path.isdir(path):
+                # __pycache__ vb. gizli klasörleri atla
+                if item.startswith("__") or item.startswith("."):
+                    continue
+                tree_lines.append(f"{prefix}{connector}{item}/")
+                walk(path, prefix + ("    " if i == len(items) - 1 else "│   "))
+            else:
+                ext = os.path.splitext(item)[1]
+                if ext not in EXT_LANG_MAP and not item.endswith(('.txt', '.csv', '.json', '.md')):
+                    continue  # gereksiz dosya
+                desc, dep = FILE_INFO.get(item, (None, None))
+                extra = f" # {desc}" if desc else ""
+                extra += f" ♻️{dep}" if dep else ""
+                tree_lines.append(f"{prefix}{connector}{item}{extra}")
+
+    walk(root_dir)
+    return "\n".join(tree_lines)
 
 
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args
-    include_content = len(args) > 0 and args[0].lower() == 'l'
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    zip_filename = f"Bot_dar_{timestamp}.zip"
-    txt_filename = f"Bot_dar_{timestamp}.txt"
-
-    output_lines = []
-
-    # ZIP hazırlama
-    zipf = zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) if include_content else None
-
-    for root, dirs, files in os.walk(ROOT_DIR):
-        # Klasör adı ekle
-        level = root.replace(ROOT_DIR, '').count(os.sep)
-        indent = ' ' * 4 * level
-        output_lines.append(f"{indent}{os.path.basename(root)}/")
-
-        for fname in files:
-            filepath = os.path.join(root, fname)
-            ext = os.path.splitext(fname)[1]
-            lang = EXT_LANG_MAP.get(ext, 'Text')
-
-            if not include_content:
-                # Sadece dosya adı + dil bilgisi
-                desc = f" # {lang}" if lang != 'Text' else ''
-                output_lines.append(f"{indent}    {fname}{desc}")
-            else:
-                # İçerik + bağımlılık ekleme
-                deps = get_dependencies(filepath, lang)
-                try:
-                    with open(filepath, 'r', encoding='utf-8') as file:
-                        content = file.read()
-                    deps_section = f"# Dependencies:\n" + "\n".join(deps) + "\n\n" if deps else ''
-                    content_with_header = (
-                        f"# {os.path.relpath(filepath, ROOT_DIR)} [{lang}]\n"
-                        f"{deps_section}{content}\n\n"
-                    )
-                except Exception:
-                    content_with_header = (
-                        f"# {os.path.relpath(filepath, ROOT_DIR)} [{lang}]\n[Dosya okunamadı]\n"
-                    )
-
-                # ZIP içine yaz
-                zipf.writestr(os.path.relpath(filepath, ROOT_DIR), content_with_header)
-
-    # ZIP veya TXT gönder
-    if include_content:
-        zipf.close()
-        with open(zip_filename, 'rb') as f:
-            await update.message.reply_document(document=f)
+    tree_text = format_tree(ROOT_DIR)
+    if len(tree_text) <= TELEGRAM_MSG_LIMIT:
+        await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
     else:
-        output_text = "\n".join(output_lines)
-        if len(output_text) <= TELEGRAM_MSG_LIMIT:
-            await update.message.reply_text(f"<pre>{output_text}</pre>", parse_mode="HTML")
-        else:
-            with open(txt_filename, 'w', encoding='utf-8') as f:
-                f.write(output_text)
-            with open(txt_filename, 'rb') as f:
-                await update.message.reply_document(document=f)
+        # Dosya ile gönder
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        txt_filename = f"Bot_dar_{timestamp}.txt"
+        with open(txt_filename, 'w', encoding='utf-8') as f:
+            f.write(tree_text)
+        with open(txt_filename, 'rb') as f:
+            await update.message.reply_document(document=f)
 
 
 # Plugin loader uyumlu
