@@ -1,19 +1,21 @@
-##p_handler.py
-##
+# handlers/p_handler.py
 import logging
-import asyncio
 from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
-from utils import binance_api
+from utils.binance_api import get_binance_api
 
 LOG = logging.getLogger(__name__)
 LOG.addHandler(logging.NullHandler())
 
 COMMAND = "P"
-HELP = "/P [coin...] — Trend coinleri gösterir.\n/Pd — Düşüşteki coinler."
+HELP = "/P [coin...] — Trend coinleri gösterir.\n/P d — Düşüşteki coinler."
 
+# -------------------------------------------------
+# Ticker verisi çekme
+# -------------------------------------------------
 async def fetch_ticker_data(symbols=None, descending=True):
-    data = await binance_api.get_24h_ticker()
+    api = get_binance_api()
+    data = await api.get_all_24h_tickers()
     if not data:
         return []
 
@@ -26,14 +28,14 @@ async def fetch_ticker_data(symbols=None, descending=True):
         usdt_pairs = [d for d in usdt_pairs if d["symbol"] in wanted]
 
     # Yüzdelik değişime göre sırala
-    usdt_pairs.sort(
-        key=lambda x: float(x["priceChangePercent"]),
-        reverse=descending
-    )
+    usdt_pairs.sort(key=lambda x: float(x["priceChangePercent"]), reverse=descending)
 
     # İlk 20 sonucu döndür
     return usdt_pairs[:20]
 
+# -------------------------------------------------
+# Rapor formatlama
+# -------------------------------------------------
 def format_report(data, title):
     lines = [f"📈 {title}"]
     for i, coin in enumerate(data, start=1):
@@ -51,6 +53,9 @@ def format_report(data, title):
         lines.append(f"{i}. {symbol}: {change:.2f}% | {vol_fmt} | {price}")
     return "\n".join(lines)
 
+# -------------------------------------------------
+# Telegram handler
+# -------------------------------------------------
 async def p_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
@@ -71,5 +76,9 @@ async def p_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     report = format_report(data, title)
     await update.message.reply_text(report)
 
+# -------------------------------------------------
+# Plugin loader entry
+# -------------------------------------------------
 def register(application):
     application.add_handler(CommandHandler(COMMAND, p_handler))
+    LOG.info("P handler registered.")
