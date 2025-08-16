@@ -81,7 +81,7 @@ async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
     else:
         # Dosya ile gönder
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%m%d_%H%M%S")
         txt_filename = f"Bot_dar_{timestamp}.txt"
         with open(txt_filename, 'w', encoding='utf-8') as f:
             f.write(tree_text)
