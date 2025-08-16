@@ -7,8 +7,7 @@
 # - Tüm parametreler (STREAM_SYMBOLS, STREAM_INTERVAL, PAPER_MODE, EVALUATOR_WINDOW, EVALUATOR_THRESHOLD) config üzerinden okunuyor.
 # - ImportError veya eski değişken eksiklikleri ortadan kalktı.
 # - .env dosyası ile kolayca değerleri değiştirebilirsin.
-
-
+# - tüm STREAM_*, PAPER_MODE, EVALUATOR_* sabitlerini tamamen CONFIG üzerinden okuyan sürümü
 
 import asyncio
 import os
@@ -70,20 +69,17 @@ async def async_main():
         return await order_manager.process_decision(decision)
 
     # Config üzerinden değerler
-    EVALUATOR_WINDOW = CONFIG.BOT.EVALUATOR_WINDOW
-    EVALUATOR_THRESHOLD = CONFIG.BOT.EVALUATOR_THRESHOLD
-
     evaluator = SignalEvaluator(
         decision_callback=decision_cb,
         loop=loop,
-        window_seconds=EVALUATOR_WINDOW,
-        threshold=EVALUATOR_THRESHOLD,
+        window_seconds=CONFIG.BOT.EVALUATOR_WINDOW,
+        threshold=CONFIG.BOT.EVALUATOR_THRESHOLD,
     )
 
     # Strategies & data queue
-    STREAM_SYMBOLS = CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO
-    STREAM_INTERVAL = CONFIG.BINANCE.STREAM_INTERVAL
-    strategies: Dict[str, RSI_MACD_Strategy] = {sym: RSI_MACD_Strategy(sym) for sym in STREAM_SYMBOLS}
+    strategies: Dict[str, RSI_MACD_Strategy] = {
+        sym: RSI_MACD_Strategy(sym) for sym in CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO
+    }
     kline_queue: asyncio.Queue = asyncio.Queue()
 
     # Bridge: WS mesaj yönlendirici
@@ -142,12 +138,12 @@ async def async_main():
     evaluator.start()
 
     # 2) Streams
-    streams = build_stream_list(STREAM_SYMBOLS, STREAM_INTERVAL)
+    streams = build_stream_list(CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO, CONFIG.BINANCE.STREAM_INTERVAL)
     stream_mgr.start_combined_groups(streams, bridge)
 
     # 3) Periodic funding poller
     stream_mgr.start_periodic_funding_poll(
-        STREAM_SYMBOLS,
+        CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO,
         interval_sec=60,
         callback=lambda data: asyncio.create_task(
             __import__("handlers").funding_handler.handle_funding_data(data)
@@ -161,7 +157,7 @@ async def async_main():
     LOG.info(
         "Services started. PAPER_MODE=%s | Streams=%s",
         CONFIG.BOT.PAPER_MODE,
-        ", ".join(STREAM_SYMBOLS),
+        ", ".join(CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO),
     )
 
     # --- Graceful shutdown mechanics ---
