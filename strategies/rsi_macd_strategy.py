@@ -1,33 +1,52 @@
 # strategies/rsi_macd_strategy.py
-##♦️ pluggable strategy wrapper
+# ♦️ Pluggable strategy wrapper (RSI + MACD)
+
 from collections import deque
-from utils import indicators
-from handlers.signal_handler import publish_signal
+from utils import ta_utils  # artık ta_utils kullanılıyor
 
 class RSI_MACD_Strategy:
     """
-    Lightweight class-based strategy that consumes closed klines and emits signals.
-    Use by feeding closed close prices.
+    RSI + MACD tabanlı örnek strateji.
+    Kapanış fiyatlarını besle, basit BUY/SELL sinyali döner.
     """
+
     def __init__(self, symbol: str, lookback: int = 500, rsi_period: int = 14):
         self.symbol = symbol
         self.closes = deque(maxlen=lookback)
         self.rsi_period = rsi_period
 
     def on_new_close(self, close: float):
+        """Yeni kapanış fiyatı ekle ve sinyal üret."""
         self.closes.append(close)
         if len(self.closes) < self.rsi_period + 1:
-            return
-        arr = list(self.closes)
-        rsi_val = indicators.rsi(arr, period=self.rsi_period)[-1]
-        macd_line, macd_signal, macd_hist = indicators.macd(arr)
-        macd_h = macd_hist[-1] if macd_hist else None
-        if rsi_val is None or macd_h is None:
-            return
-        # simple rules
+            return None
+
+        # closes → DataFrame'e çevir
+        import pandas as pd
+        df = pd.DataFrame({"close": list(self.closes)})
+
+        # RSI
+        rsi_val = ta_utils.rsi(df, period=self.rsi_period).iloc[-1]
+
+        # MACD
+        macd_line, signal_line, hist = ta_utils.macd(df)
+        macd_h = hist.iloc[-1]
+
+        if pd.isna(rsi_val) or pd.isna(macd_h):
+            return None
+
+        # Basit kurallar
         if rsi_val < 30 and macd_h > 0:
-            # emit BUY
-            return {"type": "BUY", "strength": 0.6, "payload": {"rsi": rsi_val, "macd_h": macd_h, "price": close}}
+            return {
+                "type": "BUY",
+                "strength": 0.6,
+                "payload": {"rsi": rsi_val, "macd_h": macd_h, "price": close}
+            }
         elif rsi_val > 70 and macd_h < 0:
-            return {"type": "SELL", "strength": 0.6, "payload": {"rsi": rsi_val, "macd_h": macd_h, "price": close}}
+            return {
+                "type": "SELL",
+                "strength": 0.6,
+                "payload": {"rsi": rsi_val, "macd_h": macd_h, "price": close}
+            }
+
         return None
