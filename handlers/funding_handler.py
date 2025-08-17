@@ -8,10 +8,12 @@ from telegram import Update
 from telegram.ext import CommandHandler, ContextTypes
 
 from utils.binance_api import get_binance_api
-#from utils.binance_api import binance_api
 
 LOG = logging.getLogger("funding_handler")
 LOG.addHandler(logging.NullHandler())
+
+# Global Binance API instance
+binance_api = get_binance_api()
 
 _CONCURRENCY = 15
 
