@@ -1,7 +1,9 @@
 # handlers/dar_handler.py
 # --------------------------------
-# /dar      -> Dosya ağacı (daha okunabilir)
+# /dar      -> Dosya ağacı (mesaj, uzun olursa TXT)
 # /dar Z    -> ZIP (tree.txt + içerikler, sadece listelenen dosyalar + .env + .gitignore)
+# ZIP içinde klasör yapısı korunur (ör. utils/ap_utils.py)
+# Dosya adı: Dbot_aygun_saatdakikasaniye.zip
 
 import os
 import zipfile
@@ -63,19 +65,19 @@ def format_tree(root_dir):
             connector = "└── " if i == len(items) - 1 else "├── "
 
             if os.path.isdir(path):
-                if item.startswith("__") or item.startswith("."):
+                if item.startswith("__") or (item.startswith(".") and item not in [".gitignore", ".env"]):
                     continue
                 tree_lines.append(f"{prefix}{connector}{item}/")
                 walk(path, prefix + ("    " if i == len(items) - 1 else "│   "))
             else:
-                # .env ve .gitignore özel izinli
+                # gizli dosya kontrolü
                 if item.startswith(".") and item not in [".env", ".gitignore"]:
-                    return
+                    continue
                 ext = os.path.splitext(item)[1]
                 if (ext not in EXT_LANG_MAP 
                         and not item.endswith(('.txt', '.csv', '.json', '.md'))
                         and item not in [".env", ".gitignore"]):
-                    return
+                    continue
                 desc, dep = FILE_INFO.get(item, (None, None))
                 extra = f" # {desc}" if desc else ""
                 extra += f" ♻️{dep}" if dep else ""
