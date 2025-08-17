@@ -1,7 +1,7 @@
 # handlers/dar_handler.py
 # --------------------------------
 # /dar      -> Dosya ağacı (daha okunabilir)
-/# /dar L    -> ZIP ile içerik + bağımlılık
+# /dar Z    -> ZIP (tree.txt + içerikler, sadece listelenen dosyalar + .env + .gitignore)
 
 import os
 import zipfile
@@ -12,7 +12,7 @@ from telegram.ext import ContextTypes, CommandHandler
 ROOT_DIR = '.'
 TELEGRAM_MSG_LIMIT = 4000
 
-# Dosya uzantısı -> dil eşlemesi
+#--dosya uzantısı -> dil eşlemesi---
 EXT_LANG_MAP = {
     '.py': 'Python',
     '.js': 'JavaScript',
@@ -26,9 +26,10 @@ EXT_LANG_MAP = {
     '.csv': 'CSV',
     '.sh': 'Shell',
     '.md': 'Markdown',
+    '.txt': 'Text',
 }
 
-# Dosya görevleri ve bağımlılık map (biliniyorsa)
+#--dosya görevleri---
 FILE_INFO = {
     'main.py': ("Ana bot başlatma, handler kayıtları, JobQueue görevleri", None),
     'keep_alive.py': ("Render Free ping sistemi (bot uyumasını önler)", None),
@@ -47,79 +48,85 @@ FILE_INFO = {
     'fav_list.json': (None, None),
     'runtime.txt': (None, None),
     '.env': (None, None),
+    '.gitignore': (None, None),
 }
 
-
+#--dar komutu---
 def format_tree(root_dir):
     tree_lines = []
+    valid_files = []  # sadece eklenecek dosyalar
 
     def walk(dir_path, prefix=""):
         items = sorted(os.listdir(dir_path))
         for i, item in enumerate(items):
             path = os.path.join(dir_path, item)
             connector = "└── " if i == len(items) - 1 else "├── "
+
             if os.path.isdir(path):
-                # __pycache__ vb. gizli klasörleri atla
                 if item.startswith("__") or item.startswith("."):
                     continue
                 tree_lines.append(f"{prefix}{connector}{item}/")
                 walk(path, prefix + ("    " if i == len(items) - 1 else "│   "))
             else:
+                # .env ve .gitignore özel izinli
+                if item.startswith(".") and item not in [".env", ".gitignore"]:
+                    return
                 ext = os.path.splitext(item)[1]
-                if ext not in EXT_LANG_MAP and not item.endswith(('.txt', '.csv', '.json', '.md')):
-                    continue  # gereksiz dosya
+                if (ext not in EXT_LANG_MAP 
+                        and not item.endswith(('.txt', '.csv', '.json', '.md'))
+                        and item not in [".env", ".gitignore"]):
+                    return
                 desc, dep = FILE_INFO.get(item, (None, None))
                 extra = f" # {desc}" if desc else ""
                 extra += f" ♻️{dep}" if dep else ""
                 tree_lines.append(f"{prefix}{connector}{item}{extra}")
+                valid_files.append(path)
 
     walk(root_dir)
-    return "\n".join(tree_lines)
+    return "\n".join(tree_lines), valid_files
 
+#--ZIP oluşturucu---
+def create_zip_with_tree_and_files(root_dir, zip_filename):
+    tree_text, valid_files = format_tree(root_dir)
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        # ağacı ekle
+        zipf.writestr("tree.txt", tree_text)
+        # sadece ağaçta olan dosyaları ekle (klasör yapısıyla)
+        for filepath in valid_files:
+            arcname = os.path.relpath(filepath, root_dir)
+            try:
+                zipf.write(filepath, arcname)
+            except Exception:
+                pass
+    return zip_filename
 
-def build_zip_with_tree(zip_filename: str, tree_text: str):
-    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zf:
-        # tree.txt ekle
-        zf.writestr("tree.txt", tree_text)
-
-        # tüm dosyaları ekle
-        for root, dirs, files in os.walk(ROOT_DIR):
-            # gizli klasörleri atla
-            dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("__")]
-            for file in files:
-                if file.startswith(".") or file.endswith(".pyc"):
-                    continue
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, ROOT_DIR)
-                zf.write(full_path, rel_path)
-
-
+#--dar komutu handler---
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
-    tree_text = format_tree(ROOT_DIR)
+    mode = args[0].upper() if args else ""
 
-    if args and args[0].upper() == "L":
-        # ZIP oluştur
-        timestamp = datetime.now().strftime("%m%d_%H%M%S")
-        zip_filename = f"Bot_dar_{timestamp}.zip"
-        build_zip_with_tree(zip_filename, tree_text)
-        with open(zip_filename, 'rb') as f:
+    tree_text, _ = format_tree(ROOT_DIR)
+    timestamp = datetime.now().strftime("%m%d_%H%M%S")
+
+    if mode == "Z":
+        zip_filename = f"Dbot_{timestamp}.zip"
+        create_zip_with_tree_and_files(ROOT_DIR, zip_filename)
+        with open(zip_filename, "rb") as f:
             await update.message.reply_document(document=f, filename=zip_filename)
         os.remove(zip_filename)
-    else:
-        # Normal dosya ağacı göster
-        if len(tree_text) <= TELEGRAM_MSG_LIMIT:
-            await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
-        else:
-            timestamp = datetime.now().strftime("%m%d_%H%M%S")
-            txt_filename = f"Bot_dar_{timestamp}.txt"
-            with open(txt_filename, 'w', encoding='utf-8') as f:
-                f.write(tree_text)
-            with open(txt_filename, 'rb') as f:
-                await update.message.reply_document(document=f)
-            os.remove(txt_filename)
+        return
 
+    if len(tree_text) > TELEGRAM_MSG_LIMIT:
+        txt_filename = f"Dbot_{timestamp}.txt"
+        with open(txt_filename, 'w', encoding='utf-8') as f:
+            f.write(tree_text)
+        with open(txt_filename, 'rb') as f:
+            await update.message.reply_document(document=f)
+        os.remove(txt_filename)
+        return
 
-# Plugin loader uyumlu
+    await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
+
+#--plugin loader---
 def register(app):
     app.add_handler(CommandHandler("dar", dar_command))
