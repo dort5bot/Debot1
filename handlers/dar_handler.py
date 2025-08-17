@@ -1,9 +1,10 @@
 # handlers/dar_handler.py
 # --------------------------------
 # /dar      -> Dosya ağacı (daha okunabilir)
-# /dar L    -> ZIP ile içerik + bağımlılık
+/# /dar L    -> ZIP ile içerik + bağımlılık
 
 import os
+import zipfile
 from datetime import datetime
 from telegram import Update
 from telegram.ext import ContextTypes, CommandHandler
@@ -48,6 +49,7 @@ FILE_INFO = {
     '.env': (None, None),
 }
 
+
 def format_tree(root_dir):
     tree_lines = []
 
@@ -75,18 +77,47 @@ def format_tree(root_dir):
     return "\n".join(tree_lines)
 
 
+def build_zip_with_tree(zip_filename: str, tree_text: str):
+    with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zf:
+        # tree.txt ekle
+        zf.writestr("tree.txt", tree_text)
+
+        # tüm dosyaları ekle
+        for root, dirs, files in os.walk(ROOT_DIR):
+            # gizli klasörleri atla
+            dirs[:] = [d for d in dirs if not d.startswith(".") and not d.startswith("__")]
+            for file in files:
+                if file.startswith(".") or file.endswith(".pyc"):
+                    continue
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, ROOT_DIR)
+                zf.write(full_path, rel_path)
+
+
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args
     tree_text = format_tree(ROOT_DIR)
-    if len(tree_text) <= TELEGRAM_MSG_LIMIT:
-        await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
-    else:
-        # Dosya ile gönder
+
+    if args and args[0].upper() == "L":
+        # ZIP oluştur
         timestamp = datetime.now().strftime("%m%d_%H%M%S")
-        txt_filename = f"Bot_dar_{timestamp}.txt"
-        with open(txt_filename, 'w', encoding='utf-8') as f:
-            f.write(tree_text)
-        with open(txt_filename, 'rb') as f:
-            await update.message.reply_document(document=f)
+        zip_filename = f"Bot_dar_{timestamp}.zip"
+        build_zip_with_tree(zip_filename, tree_text)
+        with open(zip_filename, 'rb') as f:
+            await update.message.reply_document(document=f, filename=zip_filename)
+        os.remove(zip_filename)
+    else:
+        # Normal dosya ağacı göster
+        if len(tree_text) <= TELEGRAM_MSG_LIMIT:
+            await update.message.reply_text(f"<pre>{tree_text}</pre>", parse_mode="HTML")
+        else:
+            timestamp = datetime.now().strftime("%m%d_%H%M%S")
+            txt_filename = f"Bot_dar_{timestamp}.txt"
+            with open(txt_filename, 'w', encoding='utf-8') as f:
+                f.write(tree_text)
+            with open(txt_filename, 'rb') as f:
+                await update.message.reply_document(document=f)
+            os.remove(txt_filename)
 
 
 # Plugin loader uyumlu
