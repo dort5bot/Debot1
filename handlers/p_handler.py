@@ -37,7 +37,8 @@ async def fetch_ticker_data(symbols=None, descending=True):
 # Rapor formatlama
 # -------------------------------------------------
 def format_report(data, title):
-    lines = [f"📈 {title}"]
+    #lines = [f"📈 {title}"]
+    lines = [f"📈 {title}", "Coin | Değişim | Hacim | Fiyat"]  # Kolon başlıkları eklendi
     for i, coin in enumerate(data, start=1):
         symbol = coin["symbol"].replace("USDT", "")
         change = float(coin["priceChangePercent"])
