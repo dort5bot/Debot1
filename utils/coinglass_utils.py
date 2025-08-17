@@ -1,5 +1,4 @@
-####coinglass_utils.py
-
+# utils/coinglass_utils.py
 import os
 import logging
 import requests
@@ -21,7 +20,7 @@ PROVIDER_MAP = {
     "Grayscale": ["GBTC", "ETHE"]
 }
 
-# ------------------ ETF Net Akış Verisi ------------------ #
+# ------------------ ETF Fiyat ve Akış Verisi ------------------ #
 
 def get_etf_flow(asset: str = "bitcoin") -> str:
     """
@@ -43,11 +42,9 @@ def get_etf_flow(asset: str = "bitcoin") -> str:
         if str(data.get("code")) != "0" or not data.get("data"):
             return f"{asset.upper()} için ETF verileri alınamadı."
 
-        # Bugünün ve dünün verisi
         today_data = data["data"][0]
         yesterday_data = data["data"][1] if len(data["data"]) > 1 else None
 
-        # Total flow
         total_today = sum([etf.get("flow", 0) for etf in today_data.get("etfList", [])])
         total_yesterday = sum([etf.get("flow", 0) for etf in yesterday_data.get("etfList", [])]) if yesterday_data else 0
         change = total_today - total_yesterday
@@ -71,3 +68,28 @@ def get_etf_flow(asset: str = "bitcoin") -> str:
     except Exception as e:
         LOG.warning("[Coinglass] %s ETF verisi alınamadı: %s", asset, e)
         return f"{asset.upper()} için ETF verileri alınamadı."
+
+def get_etf_price_history(asset: str, start_date: str, end_date: str) -> Dict[str, Any]:
+    """
+    Belirtilen varlık için ETF fiyat geçmişi verisini getirir.
+    asset = 'bitcoin' veya 'ethereum'
+    """
+    if not COINGLASS_API_KEY:
+        LOG.warning("Coinglass API key bulunamadı.")
+        return {}
+
+    url = f"{COINGLASS_BASE_URL}/{asset}/etf/price/history"
+    headers = {"CG-API-KEY": COINGLASS_API_KEY}
+    params = {"start": start_date, "end": end_date}
+
+    try:
+        r = requests.get(url, headers=headers, params=params, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+        if str(data.get("code")) != "0" or not data.get("data"):
+            LOG.warning("%s ETF fiyat verisi boş döndü", asset)
+            return {}
+        return data["data"]
+    except Exception as e:
+        LOG.warning("[Coinglass] %s ETF fiyat verisi alınamadı: %s", asset, e)
+        return {}
