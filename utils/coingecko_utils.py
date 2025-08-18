@@ -1,6 +1,5 @@
 ##coingecko_utils.py
-#90 satır 
-
+#79
 import requests
 import logging
 
@@ -9,14 +8,16 @@ LOG.addHandler(logging.NullHandler())
 
 class CoinGeckoAPI:
     BASE_URL = "https://api.coingecko.com/api/v3"
+    # API anahtarı doğrudan eklenmiş
+    API_KEY = "CG-eiMds8XoZG8SPWRR7ia7fzKv"
 
     def __init__(self):
         self.session = requests.Session()
+        self.session.headers.update({
+            "CG-API-KEY": self.API_KEY
+        })
 
     def get_price(self, ids, vs_currencies, include_market_data=False):
-        """
-        Belirtilen coin'lerin fiyatlarını alır.
-        """
         url = f"{self.BASE_URL}/simple/price"
         params = {
             "ids": ids,
@@ -32,9 +33,6 @@ class CoinGeckoAPI:
             return {}
 
     def get_market_data(self, ids, vs_currency, order="market_cap_desc", per_page=100, page=1):
-        """
-        Coin'lerin piyasa verilerini alır.
-        """
         url = f"{self.BASE_URL}/coins/markets"
         params = {
             "ids": ids,
@@ -52,9 +50,6 @@ class CoinGeckoAPI:
             return []
 
     def get_trending_coins(self):
-        """
-        En çok trend olan coin'leri alır.
-        """
         url = f"{self.BASE_URL}/search/trending"
         try:
             response = self.session.get(url)
@@ -65,9 +60,6 @@ class CoinGeckoAPI:
             return []
 
     def get_coin_categories(self):
-        """
-        Coin kategorilerini alır.
-        """
         url = f"{self.BASE_URL}/coins/categories/list"
         try:
             response = self.session.get(url)
@@ -78,9 +70,6 @@ class CoinGeckoAPI:
             return []
 
     def get_global_data(self):
-        """
-        Küresel piyasa verilerini alır.
-        """
         url = f"{self.BASE_URL}/global"
         try:
             response = self.session.get(url)
