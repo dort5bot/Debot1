@@ -1,4 +1,4 @@
-# ta_utils.py
+# ta_utils.py 399
 # Free Render uyumlu hibrit TA pipeline
 # - CPU-bound: ThreadPoolExecutor
 # - IO-bound: asyncio
@@ -146,14 +146,16 @@ def bollinger_bands(df: pd.DataFrame, period: int = None, column: str = "close")
 
     sma = df[column].rolling(window=period).mean()
     std = df[column].rolling(window=period).std()
-    upper = sma + (CONFIG.TA.BB_STD * std)
-    lower = sma - (CONFIG.TA.BB_STD * std)
+    upper = sma + (CONFIG.TA.BB_STDDEV * std)
+    lower = sma - (CONFIG.TA.BB_STDDEV * std)
     return upper, sma, lower
 
 
-def sharpe_ratio(df: pd.DataFrame, risk_free_rate: float = 0.0, period: int = None, column: str = "close"):
+def sharpe_ratio(df: pd.DataFrame, risk_free_rate: float = None, period: int = None, column: str = "close"):
     """Sharpe Ratio hesaplar."""
     period = period or CONFIG.TA.SHARPE_PERIOD
+    risk_free_rate = risk_free_rate or CONFIG.TA.SHARPE_RISK_FREE_RATE
+
     returns = df[column].pct_change()
     excess = returns - risk_free_rate / period
     return (excess.mean() / excess.std()) * np.sqrt(period)
