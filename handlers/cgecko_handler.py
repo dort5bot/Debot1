@@ -52,4 +52,4 @@ def register(application):
     """
     /cko komutunu bot uygulamasına ekler.
     """
-    application.add_handler(CommandHandler("gko", gko))
+    application.add_handler(CommandHandler("cko", cko))
