@@ -1,5 +1,5 @@
-####cko_handler.py
-#utils.coingecko_utils
+#cgecko_handler.py
+
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
 from utils.coingecko_utils import CoinGeckoAPI
@@ -13,7 +13,7 @@ def cko(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
 
     # 1️⃣ BTC ve ETH fiyatları
-    prices = cg.get_price(ids="bitcoin,ethereum", vs_currencies="usd", include_market_data=True)
+    prices = cg.get_price(ids="bitcoin,ethereum", vs_currencies="usd")
 
     # 2️⃣ BTC ve ETH piyasa verileri
     market_data = cg.get_market_data(ids="bitcoin,ethereum", vs_currency="usd")
