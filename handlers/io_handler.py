@@ -1,84 +1,143 @@
 # handlers/io_handler.py
 import logging
-from typing import Optional
-
+from time import time
 from telegram import Update
-from telegram.ext import CommandHandler, ContextTypes
-
-from utils.io_utils import (
-    market_inout,
-    symbol_inout,
-    format_market_report,
-    format_symbol_report,
+from telegram.ext import CallbackContext, CommandHandler
+from utils.io_utils import build_io_snapshot
+from utils.binance_api import (
+    get_klines,
+    get_order_book,
+    get_recent_trades,
+    get_ticker,
+    get_funding_rate,
+    get_open_interest,
+    get_liquidations
 )
 
-LOG = logging.getLogger("io_handler")
-LOG.addHandler(logging.NullHandler())
+logger = logging.getLogger(__name__)
 
-COMMAND = "io"
-HELP = (
-    "/io [SYMBOL] — Emir defteri/taker analizi ile piyasa-alış satışı ve nakit göçü raporu.\n"
-    "Ör: /io  |  /io ETHUSDT"
-)
+# ===============================
+# --- Yardımcı Fonksiyonlar ---
+# ===============================
 
-
-# ---------------- Plugin loader uyumlu register ----------------
-def get_handler():
+def trend_pattern(flow_dict: dict):
     """
-    Main plugin loader'ın çağıracağı metadata.
+    Zamana göre trend oku çıkarır (+ yukarı, - aşağı, x nötr)
+    """
+    pattern = []
+    for tf in ["15m", "1h", "4h", "12h", "1d"]:
+        val = flow_dict.get(tf, 50)
+        if val > 52:
+            pattern.append("🔼")
+        elif val < 48:
+            pattern.append("🔻")
+        else:
+            pattern.append("➖")
+    return "".join(pattern)
+
+def calc_flow_ratio(trades, timeframe_sec: int):
+    """
+    Taker bazlı alış yüzdesi (buy_qty / total_qty)
+    timeframe_sec: 15m=900, 1h=3600, ...
+    """
+    cutoff = time() * 1000 - timeframe_sec * 1000
+    buys = sum(float(t["qty"]) for t in trades if not t["isBuyerMaker"] and t["time"] >= cutoff)
+    sells = sum(float(t["qty"]) for t in trades if t["isBuyerMaker"] and t["time"] >= cutoff)
+    total = buys + sells
+    return round((buys / total) * 100, 2) if total > 0 else 50.0
+
+def calc_multi_flows(trades):
+    """
+    5 zaman periyoduna göre alış yüzdeleri
     """
     return {
-        "command": COMMAND,
-        "callback": handle_command,
-        "help": HELP,
+        "15m": calc_flow_ratio(trades, 900),
+        "1h": calc_flow_ratio(trades, 3600),
+        "4h": calc_flow_ratio(trades, 14400),
+        "12h": calc_flow_ratio(trades, 43200),
+        "1d": calc_flow_ratio(trades, 86400),
     }
 
+# ===============================
+# --- IO Handler ---
+# ===============================
 
-# ---------------- Komut implementasyonu ----------------
-async def handle_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+def io(update: Update, context: CallbackContext):
     """
-    /io komutu çalıştırıldığında tetiklenir.
-    update: Telegram Update nesnesi
-    context: Bot context, args context.args içinde gelir
+    /io komutu: Nakit Göçü Raporu üretir (Binance verisi ile)
     """
-    args = " ".join(context.args) if context.args else None
-    symbol = (args or "").strip().upper()
+    chat_id = update.effective_chat.id
 
     try:
-        # Piyasa geneli veya tek sembol
-        if not symbol:
-            data = await market_inout()
-            text = format_market_report(data)
-        else:
-            data = await symbol_inout(symbol)
-            text = format_symbol_report(data)
+        symbols = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT"]
+        report_lines = ["⚡ Nakit Göçü Raporu\n"]
 
-        # Alt yorum (risk değerlendirmesi)
-        try:
-            if not symbol:
-                r1d = (data.get("market_ratios") or {}).get("1d", 0.0)
-            else:
-                r1d = (data.get("ratios") or {}).get("1d", 0.0)
+        for sym in symbols:
+            try:
+                # Binance API'den verileri çek
+                klines = get_klines(sym, interval="5m", limit=100)
+                order_book = get_order_book(sym, limit=50)
+                trades = get_recent_trades(sym, limit=500)
+                ticker = get_ticker(sym)
+                funding = get_funding_rate(sym)
+                oi = get_open_interest(sym)
+                liqs = get_liquidations(sym, limit=100)
 
-            if r1d < 50.0:
-                text += "\n\nPiyasa günlük nakit giriş oranı bakımından riskli görünüyor. 1d alıcı oranı %50 üzerine çıkmadıkça temkinli ol."
-            else:
-                text += "\n\nPiyasa günlük nakit giriş oranı %50 üzerinde. Genel koşullar sert düşüş riskini azaltıyor; yine de risk yönetimi şart."
-        except Exception as e:
-            LOG.warning("Alt yorum hesaplanamadı: %s", e)
+                # Snapshot analizi
+                snapshot = build_io_snapshot(
+                    symbol=sym,
+                    klines=klines,
+                    order_book=order_book,
+                    trades=trades,
+                    ticker=ticker,
+                    funding=funding,
+                    oi=oi,
+                    liquidations=sum(x.get("qty", 0) for x in liqs) if liqs else 0
+                )
 
-        await update.message.reply_text(text)
+                # Flow oranları (5 timeframe)
+                flows = calc_multi_flows(trades)
+                pattern = trend_pattern(flows)
+
+                report_lines.append(
+                    f"{sym.replace('USDT','')} Nakit:%{flows['1d']} "
+                    f"15m:%{flows['15m']} "
+                    f"Mts:{round(snapshot['mts_score'],2)} "
+                    f"{pattern}"
+                )
+
+            except Exception as inner_e:
+                logger.error(f"{sym} verisi alınamadı: {inner_e}")
+                report_lines.append(f"{sym.replace('USDT','')} ❌ Veri alınamadı")
+
+        # Genel yorum
+        report_lines.append("\n⚡ Yorum")
+        report_lines.append(
+            "📊 1d değerleri %50 altında olan coinlerde risk yüksek. "
+            "Alış oranı %55 üzeri olanlar güçlü alıcı baskısı taşıyor."
+        )
+
+        context.bot.send_message(chat_id=chat_id, text="\n".join(report_lines))
+
     except Exception as e:
-        LOG.exception("io command failed: %s", e)
-        await update.message.reply_text("Üzgünüm, /io raporu oluşturulurken hata oluştu.")
+        logger.error(f"IO handler error: {e}", exc_info=True)
+        context.bot.send_message(chat_id=chat_id, text="⚠️ IO raporu oluşturulamadı.")
 
+# ===============================
+# --- Handler Export ---
+# ===============================
 
-#--loader plugin 
-def register(application):
+def get_handler():
+    """Klasik kullanım için CommandHandler döndürür"""
+    return CommandHandler("io", io)
+
+# ===============================
+# --- Plugin Loader Uyumu ---
+# ===============================
+
+def register(app):
     """
-    Plugin loader'ın çağıracağı fonksiyon.
+    Plugin loader için handler kaydı
+    app: telegram.ext.Application
     """
-    handler_info = get_handler()
-    application.add_handler(
-        CommandHandler(handler_info["command"], handler_info["callback"])
-    )
+    app.add_handler(get_handler())
