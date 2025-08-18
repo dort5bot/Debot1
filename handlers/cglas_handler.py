@@ -1,4 +1,4 @@
-# handlers/cg_handler.py
+# handlers/cglas_handler.py
 import logging
 from telegram import Update
 from telegram.ext import CallbackContext, CommandHandler
