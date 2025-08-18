@@ -9,192 +9,157 @@
 # - Taker ratio weighted ve büyük trade’leri önceliklendiriyor.
 # - Volume delta ve order book imbalance hassas ve ağırlıklı hesaplanıyor.
 
-import asyncio
-import logging
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
+# utils/io_utils.py
+import math
+import statistics
+from typing import Dict, Any, List, Optional
 
-from utils.config import CONFIG
-from utils.binance_api import BinanceClient
+# ===============================
+# --- Yardımcı Hesaplamalar ---
+# ===============================
 
-LOG = logging.getLogger("io_utils")
-LOG.addHandler(logging.NullHandler())
-
-# Singleton Binance client
-binance = BinanceClient()
-
-# -------------------------------------------------------------
-# Yardımcı: Trade quote value (USD normalize)
-# -------------------------------------------------------------
-def _trade_quote_value(trade: dict, symbol: str = None) -> float:
-    """
-    Trade'in USD karşılığını hesaplar.
-    quoteQty varsa direkt alır, yoksa price*qty.
-    Symbol USD değilse normalize edilebilir (basit örnek: ara parite).
-    """
+def safe_mean(values: List[float]) -> Optional[float]:
+    """Boş listeye karşı güvenli mean"""
     try:
-        if "quoteQty" in trade and trade["quoteQty"] is not None:
-            return float(trade["quoteQty"])
-        return float(trade.get("qty", 0)) * float(trade.get("price", 0))
+        return statistics.mean(values) if values else None
     except Exception:
-        return 0.0
+        return None
 
-# -------------------------------------------------------------
-# Market In/Out (Weighted + Time Bucket)
-# -------------------------------------------------------------
-async def market_inout(symbols: Optional[List[str]] = None, limit_per_symbol: int = None, window_minutes: int = 60) -> Dict[str, Dict[str, float]]:
-    limit_per_symbol = limit_per_symbol or CONFIG.BINANCE.TRADES_LIMIT
+def calc_momentum(klines: List[List[Any]]) -> Optional[float]:
+    """RSI / momentum (14 period)"""
+    try:
+        close_prices = [float(k[4]) for k in klines[-14:]]
+        if len(close_prices) < 2:
+            return None
+        gains = [max(0, close_prices[i] - close_prices[i-1]) for i in range(1, len(close_prices))]
+        losses = [max(0, close_prices[i-1] - close_prices[i]) for i in range(1, len(close_prices))]
+        avg_gain = safe_mean(gains) or 0.0
+        avg_loss = safe_mean(losses) or 0.0
+        rs = avg_gain / avg_loss if avg_loss > 0 else float("inf")
+        return 100 - (100 / (1 + rs))
+    except Exception:
+        return None
 
-    # Varsayılan en yüksek hacimli semboller
-    if not symbols:
-        tickers = await binance.get_all_24h_tickers()
-        usdt_ticks = [t for t in tickers if t.get("symbol", "").endswith("USDT")]
-        usdt_ticks.sort(key=lambda x: float(x.get("quoteVolume", 0.0)), reverse=True)
-        symbols = CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO or [t["symbol"] for t in usdt_ticks[:50]]
+def calc_volatility(klines: List[List[Any]]) -> Optional[float]:
+    """Basit volatilite hesaplama (standart sapma)"""
+    try:
+        closes = [float(k[4]) for k in klines]
+        return statistics.pstdev(closes) if closes else None
+    except Exception:
+        return None
 
-    sem = asyncio.Semaphore(CONFIG.BINANCE.IO_CONCURRENCY)
-    out: Dict[str, Dict[str, float]] = {}
+def calc_obi(order_book: Dict[str, Any]) -> Optional[float]:
+    """Order Book Imbalance (OBI)"""
+    try:
+        bids = sum(float(b[1]) for b in order_book.get("bids", []))
+        asks = sum(float(a[1]) for a in order_book.get("asks", []))
+        return (bids - asks) / (bids + asks) if (bids + asks) > 0 else None
+    except Exception:
+        return None
 
-    async def _process(sym: str):
-        async with sem:
-            trades = await binance.get_recent_trades(sym, limit=limit_per_symbol) or []
-            buy, sell = 0.0, 0.0
-            cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
-            for tr in trades:
-                ts = datetime.utcfromtimestamp(tr.get("time", 0)/1000)
-                if ts < cutoff:
-                    continue
-                qv = _trade_quote_value(tr, sym)
-                if tr.get("isBuyerMaker", False):
-                    sell += qv
-                else:
-                    buy += qv
-            out[sym] = {"buy": buy, "sell": sell}
+def calc_liquidity_layers(order_book: Dict[str, Any], price: float, pct_levels=[0.01, 0.02, 0.05]):
+    """Derinlikte likidite yoğunluğu"""
+    layers = {}
+    try:
+        for p in pct_levels:
+            bid_layer = sum(float(b[1]) for b in order_book.get("bids", []) if float(b[0]) >= price * (1 - p))
+            ask_layer = sum(float(a[1]) for a in order_book.get("asks", []) if float(a[0]) <= price * (1 + p))
+            layers[f"layer_{int(p*100)}"] = {"bids": bid_layer, "asks": ask_layer}
+    except Exception:
+        pass
+    return layers
 
-    await asyncio.gather(*[_process(s) for s in symbols], return_exceptions=True)
-    return out
+def calc_taker_ratio(trades: List[Dict[str, Any]]) -> Optional[float]:
+    """Aggressor taker oranı (buy-sell / total)"""
+    try:
+        buys = sum(float(t["qty"]) for t in trades if not t.get("isBuyerMaker"))
+        sells = sum(float(t["qty"]) for t in trades if t.get("isBuyerMaker"))
+        total = buys + sells
+        return (buys - sells) / total if total > 0 else None
+    except Exception:
+        return None
 
-# -------------------------------------------------------------
-# Tek sembol için market in/out wrapper
-# -------------------------------------------------------------
-async def symbol_inout(symbol: str, limit_per_symbol: int = None, window_minutes: int = 60):
-    """
-    Tek sembol için market in/out verisini döner.
-    Return: { "SYMBOL": {"buy": ..., "sell": ...} }
-    """
-    data = await market_inout([symbol], limit_per_symbol=limit_per_symbol, window_minutes=window_minutes)
-    return {symbol: data.get(symbol, {"buy": 0.0, "sell": 0.0})}
+def normalize_funding(funding_rate: float, avg: float = 0.0001, std: float = 0.0005) -> Optional[float]:
+    """Funding z-score normalizasyon"""
+    try:
+        return (funding_rate - avg) / std if std != 0 else None
+    except Exception:
+        return None
 
-# -------------------------------------------------------------
-# Whale Trade Counts + Momentum
-# -------------------------------------------------------------
-async def compute_whale_counts(symbols: List[str], limit_per_symbol: int = None, threshold_usd: float = None) -> Dict[str, Dict[str, float]]:
-    limit_per_symbol = limit_per_symbol or CONFIG.BINANCE.TRADES_LIMIT
-    threshold_usd = threshold_usd or CONFIG.BINANCE.WHALE_USD_THRESHOLD
+def normalize_oi(oi: Optional[float], baseline: float = 1e9) -> Optional[float]:
+    """Open Interest normalizasyon"""
+    try:
+        return oi / baseline if oi else None
+    except Exception:
+        return None
 
-    sem = asyncio.Semaphore(CONFIG.BINANCE.IO_CONCURRENCY)
-    out: Dict[str, Dict[str, float]] = {}
+def normalize_liquidations(liquidations: Optional[float], baseline: float = 1e6) -> Optional[float]:
+    """Likidasyonlar için normalizasyon"""
+    try:
+        return liquidations / baseline if liquidations else None
+    except Exception:
+        return None
 
-    async def _one(sym: str):
-        async with sem:
-            trades = await binance.get_recent_trades(sym, limit=limit_per_symbol) or []
-            wb, ws, vb, vs = 0, 0, 0.0, 0.0
-            for tr in trades:
-                qv = _trade_quote_value(tr, sym)
-                if qv >= threshold_usd:
-                    if not tr.get("isBuyerMaker", False):
-                        wb += 1
-                        vb += qv
-                    else:
-                        ws += 1
-                        vs += qv
-            total_vol = vb + vs
-            delta = (vb / total_vol) if total_vol > 0 else 0.5
-            out[sym] = {
-                "whale_buy_count": wb,
-                "whale_sell_count": ws,
-                "whale_buy_volume": vb,
-                "whale_sell_volume": vs,
-                "whale_delta": delta
-            }
+# ===============================
+# --- IO Snapshot Builder ---
+# ===============================
 
-    await asyncio.gather(*[_one(s) for s in symbols], return_exceptions=True)
-    return out
+def build_io_snapshot(
+    symbol: str,
+    klines,
+    order_book,
+    trades,
+    ticker,
+    funding,
+    oi: Optional[float] = None,
+    liquidations: Optional[float] = None
+):
+    """IO verilerinden özet snapshot üretir"""
+    # --- Hesaplamalar ---
+    momentum = calc_momentum(klines)
+    volatility = calc_volatility(klines)
+    obi = calc_obi(order_book)
+    liquidity_layers = calc_liquidity_layers(order_book, float(ticker.get("lastPrice", 0)))
+    taker_ratio = calc_taker_ratio(trades)
+    funding_rate = float(funding.get("fundingRate", 0))
+    funding_norm = normalize_funding(funding_rate)
+    oi_norm = normalize_oi(oi)
+    liq_norm = normalize_liquidations(liquidations)
 
-# -------------------------------------------------------------
-# Taker Ratio (Weighted + Price Impact)
-# -------------------------------------------------------------
-async def compute_taker_ratio(symbols: List[str], limit_per_symbol: int = None) -> Dict[str, float]:
-    limit_per_symbol = limit_per_symbol or CONFIG.BINANCE.TRADES_LIMIT
-    sem = asyncio.Semaphore(CONFIG.BINANCE.IO_CONCURRENCY)
-    out: Dict[str, float] = {}
+    # --- Skorlar ---
+    trend_score = safe_mean([
+        (momentum / 100 if momentum is not None else 0),
+        (funding_norm if funding_norm is not None else 0),
+    ]) or 0
 
-    async def _one(sym: str):
-        async with sem:
-            trades = await binance.get_recent_trades(sym, limit=limit_per_symbol) or []
-            buy, sell = 0.0, 0.0
-            for tr in trades:
-                qv = _trade_quote_value(tr, sym)
-                weight = min(qv / 10000, 1.0)
-                if not tr.get("isBuyerMaker", False):
-                    buy += qv * weight
-                else:
-                    sell += qv * weight
-            denom = buy + sell
-            out[sym] = (buy / denom) if denom > 0 else 0.5
+    liquidity_score = safe_mean([
+        (obi if obi is not None else 0),
+        (taker_ratio if taker_ratio is not None else 0),
+    ]) or 0
 
-    await asyncio.gather(*[_one(s) for s in symbols], return_exceptions=True)
-    return out
+    risk_score = safe_mean([
+        (volatility if volatility is not None else 0),
+        (liq_norm if liq_norm is not None else 0),
+    ]) or 0
 
-# -------------------------------------------------------------
-# Volume Delta & OBV
-# -------------------------------------------------------------
-async def compute_volume_delta(symbols: List[str], limit_per_symbol: int = None) -> Dict[str, float]:
-    limit_per_symbol = limit_per_symbol or CONFIG.BINANCE.TRADES_LIMIT
-    sem = asyncio.Semaphore(CONFIG.BINANCE.IO_CONCURRENCY)
-    out: Dict[str, float] = {}
+    mts_score = trend_score + liquidity_score - risk_score
 
-    async def _one(sym: str):
-        async with sem:
-            trades = await binance.get_recent_trades(sym, limit=limit_per_symbol) or []
-            buy, sell = 0.0, 0.0
-            for tr in trades:
-                qv = _trade_quote_value(tr, sym)
-                if not tr.get("isBuyerMaker", False):
-                    buy += qv
-                else:
-                    sell += qv
-            out[sym] = buy - sell
-
-    await asyncio.gather(*[_one(s) for s in symbols], return_exceptions=True)
-    return out
-
-# -------------------------------------------------------------
-# Order Book Imbalance + Weighted Depth
-# -------------------------------------------------------------
-def compute_order_book_imbalance(bids: list, asks: list, depth_limit: int = 5):
-    bid_vol, ask_vol = 0.0, 0.0
-    for i, b in enumerate(bids[:depth_limit]):
-        weight = (depth_limit - i) / depth_limit
-        bid_vol += b[1] * weight
-    for i, a in enumerate(asks[:depth_limit]):
-        weight = (depth_limit - i) / depth_limit
-        ask_vol += a[1] * weight
-    return (bid_vol - ask_vol) / (bid_vol + ask_vol) if (bid_vol + ask_vol) > 0 else 0.0
-
-# -------------------------------------------------------------
-# Market report formatting
-# -------------------------------------------------------------
-def format_market_report(data: dict) -> str:
-    lines = []
-    for sym, vals in data.items():
-        lines.append(f"{sym}: Buy={vals['buy']:.2f} USD, Sell={vals['sell']:.2f} USD")
-    return "\n".join(lines)
-
-# -------------------------------------------------------------
-# Symbol-specific report formatting
-# -------------------------------------------------------------
-def format_symbol_report(data: dict) -> str:
-    sym = list(data.keys())[0]
-    vals = data[sym]
-    return f"{sym}: Buy={vals['buy']:.2f} USD, Sell={vals['sell']:.2f} USD"
+    return {
+        "symbol": symbol,
+        "momentum": momentum,
+        "volatility": volatility,
+        "obi": obi,
+        "liquidity_layers": liquidity_layers,
+        "taker_ratio": taker_ratio,
+        "funding_rate": funding_rate,
+        "funding_norm": funding_norm,
+        "open_interest": oi,
+        "open_interest_norm": oi_norm,
+        "liquidations": liquidations,
+        "liquidations_norm": liq_norm,
+        "trend_score": trend_score,
+        "liquidity_score": liquidity_score,
+        "risk_score": risk_score,
+        "mts_score": mts_score,
+        }
+    
