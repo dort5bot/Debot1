@@ -13,13 +13,14 @@
 # FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST  REVİZE
    #BASE_URL: str = "https://api.binance.com/"        # spot REST
    #FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
-    
+
+# utils/config.py
+
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional
 from dotenv import load_dotenv, set_key
 
-# --- .env yükle ---
 ENV_PATH = ".env"
 load_dotenv(ENV_PATH, override=True)
 
@@ -53,6 +54,7 @@ class TAConfig:
     EMA_PERIODS: List[int] = field(
         default_factory=lambda: [int(x) for x in os.getenv("EMA_PERIODS", "20,50,200").split(",")]
     )
+    EMA_PERIOD: int = int(os.getenv("EMA_PERIOD", 20))  # ✅ ekledim
     MACD_FAST: int = int(os.getenv("MACD_FAST", 12))
     MACD_SLOW: int = int(os.getenv("MACD_SLOW", 26))
     MACD_SIGNAL: int = int(os.getenv("MACD_SIGNAL", 9))
@@ -64,11 +66,17 @@ class TAConfig:
     BB_PERIOD: int = int(os.getenv("BB_PERIOD", 20))
     BB_STDDEV: float = float(os.getenv("BB_STDDEV", 2))
     SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))
+    SHARPE_PERIOD: int = int(os.getenv("SHARPE_PERIOD", 252))  # ✅ ekledim
     OBV_ENABLED: bool = os.getenv("OBV_ENABLED", "true").lower() == "true"
     OBI_DEPTH: int = int(os.getenv("OBI_DEPTH", 20))
     OPEN_INTEREST_ENABLED: bool = os.getenv("OPEN_INTEREST_ENABLED", "true").lower() == "true"
     FUNDING_RATE_ENABLED: bool = os.getenv("FUNDING_RATE_ENABLED", "true").lower() == "true"
     SOCIAL_SENTIMENT_ENABLED: bool = os.getenv("SOCIAL_SENTIMENT_ENABLED", "false").lower() == "true"
+
+# === System Config ===
+@dataclass
+class SystemConfig:
+    MAX_WORKERS: int = int(os.getenv("MAX_WORKERS", 2))
 
 # === Telegram Config ===
 @dataclass
@@ -84,6 +92,7 @@ class DatabaseConfig:
 # === Master Config ===
 @dataclass
 class AppConfig:
+    SYSTEM: SystemConfig = field(default_factory=SystemConfig)  # ✅ eklendi
     BINANCE: BinanceConfig = field(default_factory=BinanceConfig)
     BOT: BotConfig = field(default_factory=BotConfig)
     TA: TAConfig = field(default_factory=TAConfig)
@@ -91,14 +100,4 @@ class AppConfig:
     DATABASE: DatabaseConfig = field(default_factory=DatabaseConfig)
 
 CONFIG = AppConfig()
-
-
-# --- Fonksiyon: .env ve CONFIG güncelleme ---
-def update_binance_keys(api_key: str, secret_key: str):
-    CONFIG.BINANCE.API_KEY = api_key
-    CONFIG.BINANCE.SECRET_KEY = secret_key
-    if os.path.exists(ENV_PATH):
-        set_key(ENV_PATH, "BINANCE_API_KEY", api_key)
-        set_key(ENV_PATH, "BINANCE_SECRET_KEY", secret_key)
-        load_dotenv(ENV_PATH, override=True)
-
+    
