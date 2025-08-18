@@ -1,63 +1,91 @@
 ##coingecko_utils.py
-##
-import os
+#90 satır 
+
 import requests
-from dotenv import load_dotenv
+import logging
 
-load_dotenv()
+LOG = logging.getLogger("coingecko_utils")
+LOG.addHandler(logging.NullHandler())
 
-COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY")
-BASE_URL = "https://pro-api.coingecko.com/api/v3"
+class CoinGeckoAPI:
+    BASE_URL = "https://api.coingecko.com/api/v3"
 
-headers = {
-    "x-cg-pro-api-key": COINGECKO_API_KEY
-}
+    def __init__(self):
+        self.session = requests.Session()
 
-def get_price(symbol: str, currency: str = "usd"):
-    """
-    Coingecko üzerinden coin fiyatını getirir.
-    symbol: 'bitcoin', 'ethereum' vb.
-    """
-    try:
-        url = f"{BASE_URL}/simple/price"
-        params = {"ids": symbol, "vs_currencies": currency}
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json().get(symbol, {}).get(currency)
-    except Exception as e:
-        print(f"[Coingecko] Fiyat verisi alınamadı: {e}")
-        return None
-
-def get_market_data(symbol: str):
-    """
-    Piyasa değeri, hacim, fiyat değişimleri gibi verileri döndürür.
-    """
-    try:
-        url = f"{BASE_URL}/coins/{symbol}"
-        r = requests.get(url, headers=headers, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return {
-            "symbol": symbol,
-            "price_usd": data["market_data"]["current_price"]["usd"],
-            "market_cap": data["market_data"]["market_cap"]["usd"],
-            "volume_24h": data["market_data"]["total_volume"]["usd"],
-            "price_change_24h": data["market_data"]["price_change_percentage_24h"]
+    def get_price(self, ids, vs_currencies, include_market_data=False):
+        """
+        Belirtilen coin'lerin fiyatlarını alır.
+        """
+        url = f"{self.BASE_URL}/simple/price"
+        params = {
+            "ids": ids,
+            "vs_currencies": vs_currencies,
+            "include_market_data": str(include_market_data).lower()
         }
-    except Exception as e:
-        print(f"[Coingecko] Market verisi alınamadı: {e}")
-        return None
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            LOG.error(f"get_price error: {e}")
+            return {}
 
-def get_historical_data(symbol: str, days: int = 30):
-    """
-    Günlük geçmiş fiyat verilerini döndürür.
-    """
-    try:
-        url = f"{BASE_URL}/coins/{symbol}/market_chart"
-        params = {"vs_currency": "usd", "days": days, "interval": "daily"}
-        r = requests.get(url, headers=headers, params=params, timeout=10)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print(f"[Coingecko] Geçmiş veri alınamadı: {e}")
-        return None
+    def get_market_data(self, ids, vs_currency, order="market_cap_desc", per_page=100, page=1):
+        """
+        Coin'lerin piyasa verilerini alır.
+        """
+        url = f"{self.BASE_URL}/coins/markets"
+        params = {
+            "ids": ids,
+            "vs_currency": vs_currency,
+            "order": order,
+            "per_page": per_page,
+            "page": page
+        }
+        try:
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            LOG.error(f"get_market_data error: {e}")
+            return []
+
+    def get_trending_coins(self):
+        """
+        En çok trend olan coin'leri alır.
+        """
+        url = f"{self.BASE_URL}/search/trending"
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            return response.json().get("coins", [])
+        except Exception as e:
+            LOG.error(f"get_trending_coins error: {e}")
+            return []
+
+    def get_coin_categories(self):
+        """
+        Coin kategorilerini alır.
+        """
+        url = f"{self.BASE_URL}/coins/categories/list"
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            LOG.error(f"get_coin_categories error: {e}")
+            return []
+
+    def get_global_data(self):
+        """
+        Küresel piyasa verilerini alır.
+        """
+        url = f"{self.BASE_URL}/global"
+        try:
+            response = self.session.get(url)
+            response.raise_for_status()
+            return response.json().get("data", {})
+        except Exception as e:
+            LOG.error(f"get_global_data error: {e}")
+            return {}
