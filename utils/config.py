@@ -13,8 +13,11 @@
 # FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST  REVİZE
    #BASE_URL: str = "https://api.binance.com/"        # spot REST
    #FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
-
 # utils/config.py
+# Konfigürasyon dosyası
+# - .env üzerinden tüm değerleri yükler
+# - CONFIG nesnesi altında gruplanmış halde kullanılabilir
+# - Binance, Bot, TA, System, IO, Telegram, Database modülleri ayrı dataclass ile yönetilir
 
 import os
 from dataclasses import dataclass, field
@@ -54,7 +57,7 @@ class TAConfig:
     EMA_PERIODS: List[int] = field(
         default_factory=lambda: [int(x) for x in os.getenv("EMA_PERIODS", "20,50,200").split(",")]
     )
-    EMA_PERIOD: int = int(os.getenv("EMA_PERIOD", 20))  # ✅ ekledim
+    EMA_PERIOD: int = int(os.getenv("EMA_PERIOD", 20))  
     MACD_FAST: int = int(os.getenv("MACD_FAST", 12))
     MACD_SLOW: int = int(os.getenv("MACD_SLOW", 26))
     MACD_SIGNAL: int = int(os.getenv("MACD_SIGNAL", 9))
@@ -66,7 +69,7 @@ class TAConfig:
     BB_PERIOD: int = int(os.getenv("BB_PERIOD", 20))
     BB_STDDEV: float = float(os.getenv("BB_STDDEV", 2))
     SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))
-    SHARPE_PERIOD: int = int(os.getenv("SHARPE_PERIOD", 252))  # ✅ ekledim
+    SHARPE_PERIOD: int = int(os.getenv("SHARPE_PERIOD", 252))  
     OBV_ENABLED: bool = os.getenv("OBV_ENABLED", "true").lower() == "true"
     OBI_DEPTH: int = int(os.getenv("OBI_DEPTH", 20))
     OPEN_INTEREST_ENABLED: bool = os.getenv("OPEN_INTEREST_ENABLED", "true").lower() == "true"
@@ -77,6 +80,16 @@ class TAConfig:
 @dataclass
 class SystemConfig:
     MAX_WORKERS: int = int(os.getenv("MAX_WORKERS", 2))
+
+# === IO Config ===
+@dataclass
+class IOConfig:
+    ENABLED: bool = os.getenv("IO_ENABLED", "true").lower() == "true"
+    WINDOW: int = int(os.getenv("IO_WINDOW", 15))  # dakika bazlı pencere
+    MIN_NOTIONAL: float = float(os.getenv("IO_MIN_NOTIONAL", 10000))  # minimum trade USD
+    MOMENTUM_LOOKBACK: int = int(os.getenv("IO_MOMENTUM_LOOKBACK", 5))  # momentum için bar sayısı
+    DEPTH_LEVELS: int = int(os.getenv("IO_DEPTH_LEVELS", 20))  # order book derinliği
+    CACHE_TTL: int = int(os.getenv("IO_CACHE_TTL", 10))  # saniye bazlı cache süresi
 
 # === Telegram Config ===
 @dataclass
@@ -92,12 +105,12 @@ class DatabaseConfig:
 # === Master Config ===
 @dataclass
 class AppConfig:
-    SYSTEM: SystemConfig = field(default_factory=SystemConfig)  # ✅ eklendi
+    SYSTEM: SystemConfig = field(default_factory=SystemConfig)
     BINANCE: BinanceConfig = field(default_factory=BinanceConfig)
     BOT: BotConfig = field(default_factory=BotConfig)
     TA: TAConfig = field(default_factory=TAConfig)
+    IO: IOConfig = field(default_factory=IOConfig)   # ✅ IO Config entegre edildi
     TELEGRAM: TelegramConfig = field(default_factory=TelegramConfig)
     DATABASE: DatabaseConfig = field(default_factory=DatabaseConfig)
 
 CONFIG = AppConfig()
-    
