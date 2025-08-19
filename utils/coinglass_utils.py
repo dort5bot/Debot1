@@ -1,108 +1,38 @@
-#utils/coinglass_utils.py
-
+#utils
 import os
-import logging
 import requests
-from typing import Dict, Any, Optional
-from dotenv import load_dotenv
 
-load_dotenv()
+BASE_URL = "https://open-api-v4.coinglass.com"
+API_KEY = os.getenv("COINGLASS_API_KEY")
+HEADERS = {"coinglassSecret": API_KEY}
 
-LOG = logging.getLogger("coinglass_utils")
-LOG.addHandler(logging.NullHandler())
+def _get(path: str, params: dict = None):
+    """API isteği yapan genel fonksiyon."""
+    url = f"{BASE_URL}{path}"
+    resp = requests.get(url, headers=HEADERS, params=params)
+    resp.raise_for_status()
+    return resp.json()
 
-COINGLASS_API_KEY = os.getenv("COINGLASS_API_KEY", "")
-COINGLASS_BASE_URL = "https://open-api-v4.coinglass.com/api"
+# --- FUTURES ---
+def futures_supported_coins(): return _get("/api/futures/supported-coins")
+def futures_supported_exchange_pairs(): return _get("/api/futures/supported-exchange-pairs")
+def futures_price_history(pair: str, interval: str = "h1"): return _get("/api/price/ohlc-history", {"symbol": pair, "interval": interval})
+def futures_liquidation_history(pair: str, interval: str = "h4"): return _get("/api/futures/liquidation/history", {"pair": pair, "interval": interval})
 
-def _get(url: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    headers = {"CG-API-KEY": COINGLASS_API_KEY}
-    try:
-        resp = requests.get(url, headers=headers, params=params, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        LOG.error(f"Coinglass API error: {e}")
-        return {}
+# --- SPOT ---
+def spot_supported_coins(): return _get("/api/spot/supported-coins")
+def spot_price_history(symbol: str, interval: str = "h1"): return _get("/api/spot/price/history", {"symbol": symbol, "interval": interval})
 
-def add_trend_arrow(current: float, previous: float) -> str:
-    try:
-        if previous == 0 or previous is None:
-            return "➖"
-        if current > previous:
-            return "🔺"
-        elif current < previous:
-            return "🔻"
-        else:
-            return "➖"
-    except Exception:
-        return "➖"
+# --- OPTIONS ---
+def option_info(): return _get("/api/option/info")
 
-def get_funding_rates(symbol: str = "BTC") -> Dict[str, Any]:
-    url = f"{COINGLASS_BASE_URL}/futures/funding-rate/exchange-list"
-    data = _get(url, params={"symbol": symbol})
-    return data.get("data", {})
+# --- ETF ---
+def etf_btc_list(): return _get("/api/etf/bitcoin/list")
+def etf_btc_flows_history(): return _get("/api/etf/bitcoin/flow-history")
+def etf_eth_list(): return _get("/api/etf/ethereum/list")
+def etf_eth_flows_history(): return _get("/api/etf/ethereum/flow-history")
 
-def get_open_interest(symbol: str = "BTC") -> Dict[str, Any]:
-    url = f"{COINGLASS_BASE_URL}/futures/open-interest/exchange-history-chart"
-    data = _get(url, params={"symbol": symbol})
-    return data.get("data", {})
+# --- Örnek Diğer Endpoint ---
+def open_interest_exchange_list(symbol: str): return _get("/api/futures/openInterest/exchange-list", {"symbol": symbol})
 
-def get_exchange_balance(symbol: str = "BTC") -> Dict[str, Any]:
-    url = f"{COINGLASS_BASE_URL}/exchange/balance/list"
-    data = _get(url, params={"symbol": symbol})
-    return data.get("data", {})
-
-def get_top_trader_long_short(symbol: str = "BTC") -> Dict[str, Any]:
-    url = f"{COINGLASS_BASE_URL}/futures/long-short-ratio/top-account-ratio-history"
-    data = _get(url, params={"symbol": symbol})
-    return data.get("data", {})
-
-def get_liquidation_history(symbol: str = "BTC", interval: str = "24h") -> Dict[str, Any]:
-    url = f"{COINGLASS_BASE_URL}/futures/liquidation-history"
-    data = _get(url, params={"symbol": symbol, "interval": interval})
-    return data.get("data", {})
-
-def build_exchange_report(symbol: str = "BTC") -> str:
-    report_lines = [f"📊 Coinglass Raporu: {symbol}"]
-
-    funding = get_funding_rates(symbol)
-    if funding:
-        current = funding.get("funding_rate", 0)
-        prev = funding.get("predicted_funding_rate", 0)
-        arrow = add_trend_arrow(current, prev)
-        report_lines.append(f"• Funding Rate: {current:.4f} ({arrow})")
-
-    oi = get_open_interest(symbol)
-    if oi:
-        current = oi.get("open_interest_usd", 0)
-        prev = oi.get("prev_open_interest_usd", 0)
-        arrow = add_trend_arrow(current, prev)
-        report_lines.append(f"• Open Interest: {current:,.0f} USD ({arrow})")
-
-    bal = get_exchange_balance(symbol)
-    if bal:
-        total = bal.get("total_balance", 0)
-        change = bal.get("balance_change_1d", 0)
-        arrow = add_trend_arrow(total, total - change)
-        report_lines.append(f"• Exchange Balance: {total:,.0f} ({arrow})")
-
-    top = get_top_trader_long_short(symbol)
-    if top:
-        acct_long = top.get("long_account", 0)
-        acct_short = top.get("short_account", 0)
-        vol_long = top.get("long_volume", 0)
-        vol_short = top.get("short_volume", 0)
-        report_lines.append(
-            f"• Top Trader Ratio:\n   Accounts L/S: {acct_long:.1f}% / {acct_short:.1f}%\n   Volume L/S: {vol_long:.1f}% / {vol_short:.1f}%"
-        )
-
-    liq = get_liquidation_history(symbol)
-    if liq:
-        long_liq = liq.get("long_vol_usd", 0)
-        short_liq = liq.get("short_vol_usd", 0)
-        arrow = "🔻" if long_liq > short_liq else "🔺"
-        report_lines.append(
-            f"• 24h Liquidations: Long={long_liq:,.0f} USD, Short={short_liq:,.0f} USD ({arrow})"
-        )
-
-    return "\n".join(report_lines)
+# ... ihtiyaca göre diğer endpointler benzer şekilde eklenebilir ...
