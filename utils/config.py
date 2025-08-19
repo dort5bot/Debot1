@@ -19,9 +19,11 @@
 # - CONFIG nesnesi altında gruplanmış halde kullanılabilir
 # - Binance, Bot, TA, System, IO, Telegram, Database modülleri ayrı dataclass ile yönetilir
 
+# utils/config.py
+
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, Dict
 from dotenv import load_dotenv, set_key
 
 ENV_PATH = ".env"
@@ -57,7 +59,7 @@ class TAConfig:
     EMA_PERIODS: List[int] = field(
         default_factory=lambda: [int(x) for x in os.getenv("EMA_PERIODS", "20,50,200").split(",")]
     )
-    EMA_PERIOD: int = int(os.getenv("EMA_PERIOD", 20))  
+    EMA_PERIOD: int = int(os.getenv("EMA_PERIOD", 20))
     MACD_FAST: int = int(os.getenv("MACD_FAST", 12))
     MACD_SLOW: int = int(os.getenv("MACD_SLOW", 26))
     MACD_SIGNAL: int = int(os.getenv("MACD_SIGNAL", 9))
@@ -69,7 +71,7 @@ class TAConfig:
     BB_PERIOD: int = int(os.getenv("BB_PERIOD", 20))
     BB_STDDEV: float = float(os.getenv("BB_STDDEV", 2))
     SHARPE_RISK_FREE_RATE: float = float(os.getenv("SHARPE_RISK_FREE_RATE", 0.02))
-    SHARPE_PERIOD: int = int(os.getenv("SHARPE_PERIOD", 252))  
+    SHARPE_PERIOD: int = int(os.getenv("SHARPE_PERIOD", 252))
     OBV_ENABLED: bool = os.getenv("OBV_ENABLED", "true").lower() == "true"
     OBI_DEPTH: int = int(os.getenv("OBI_DEPTH", 20))
     OPEN_INTEREST_ENABLED: bool = os.getenv("OPEN_INTEREST_ENABLED", "true").lower() == "true"
@@ -90,6 +92,30 @@ class IOConfig:
     MOMENTUM_LOOKBACK: int = int(os.getenv("IO_MOMENTUM_LOOKBACK", 5))  # momentum için bar sayısı
     DEPTH_LEVELS: int = int(os.getenv("IO_DEPTH_LEVELS", 20))  # order book derinliği
     CACHE_TTL: int = int(os.getenv("IO_CACHE_TTL", 10))  # saniye bazlı cache süresi
+
+    # 🔴 Yeni eklenen alanlar
+    CASHFLOW_TIMEFRAMES: Dict[str, int] = field(
+        default_factory=lambda: {
+            "15m": 15,
+            "1h": 60,
+            "4h": 240,
+            "12h": 720,
+            "1d": 1440,
+        }
+    )
+    RSI_PERIOD: int = int(os.getenv("IO_RSI_PERIOD", 14))
+    OBI_DEPTH: int = int(os.getenv("IO_OBI_DEPTH", 20))
+
+    FUNDING_AVG: float = float(os.getenv("IO_FUNDING_AVG", 0.0))
+    FUNDING_STD: float = float(os.getenv("IO_FUNDING_STD", 0.0005))
+
+    OI_BASELINE: float = float(os.getenv("IO_OI_BASELINE", 1.0))
+    LIQUIDATION_BASELINE: float = float(os.getenv("IO_LIQUIDATION_BASELINE", 1.0))
+
+    TOP_N_MIGRATION: int = int(os.getenv("IO_TOP_N_MIGRATION", 10))
+    MAX_SYMBOLS_MARKET: int = int(os.getenv("IO_MAX_SYMBOLS_MARKET", 30))
+
+    QUOTE_ASSET: str = os.getenv("IO_QUOTE_ASSET", "USDT")
 
 # === Telegram Config ===
 @dataclass
