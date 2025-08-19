@@ -6,6 +6,7 @@ from telegram.ext import CommandHandler, CallbackContext
 
 from utils.binance_api import get_binance_api
 from utils.io_utils import build_multi_snapshot
+from utils.config import CONFIG
 
 
 # --- Helper: Trend oku üretimi (+, -, x) ---
@@ -24,11 +25,10 @@ def trend_pattern(ratios: dict) -> str:
     return "".join(pattern)
 
 
-# --- Ana rapor oluşturucu ---
+# --- Ana rapor oluşturucu (async) ---
 async def generate_io_report(symbol: str | None = None) -> str:
     api = get_binance_api()
 
-    # Symbol listesi (market raporu için çoklu, coin raporu için tekli)
     symbols = [symbol.upper()] if symbol else ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
 
     symbols_data = {}
@@ -38,10 +38,9 @@ async def generate_io_report(symbol: str | None = None) -> str:
         trades = await api.get_agg_trades(sym, limit=500)
         ticker = await api.get_24h_ticker(sym)
         funding = (await api.get_funding_rate(sym, limit=1))[0] if CONFIG.TA.FUNDING_RATE_ENABLED else {}
-        oi = None  # şimdilik placeholder
-        liquidations = None  # şimdilik placeholder
+        oi = None
+        liquidations = None
 
-        # trades datasını io_utils formatına çevirelim
         trades_fmt = [
             {
                 "qty": float(t["q"]),
@@ -64,7 +63,6 @@ async def generate_io_report(symbol: str | None = None) -> str:
 
     snapshots = build_multi_snapshot(symbols_data, with_cashflow=True)
 
-    # --- Rapor formatı ---
     if symbol:  # Tek coin raporu
         snap = snapshots[symbol.upper()]
         txt = f"⚡ {symbol.upper()} IO Raporu\n"
@@ -85,11 +83,10 @@ async def generate_io_report(symbol: str | None = None) -> str:
     else:  # Market raporu
         txt = "⚡ Market Nakit Raporu\n"
         txt += "Marketteki Tüm Coinlere Olan Nakit Girişi Raporu.\n"
-        # Market genel skorları
         all_ratios = [snap["taker_ratio"] for snap in snapshots.values() if snap["taker_ratio"]]
         avg_ratio = sum(all_ratios) / len(all_ratios) if all_ratios else 0
         txt += f"Kısa Vadeli Market Alım Gücü: {avg_ratio:.2f}X\n"
-        txt += f"Marketteki Hacim Payı:%{len(symbols)*10:.1f}\n\n"  # basit placeholder
+        txt += f"Marketteki Hacim Payı:%{len(symbols)*10:.1f}\n\n"
 
         txt += "⚡ Market 5 zamana ait nakit yüzdesi\n"
         for tf in ["15m", "1h", "4h", "12h", "1d"]:
@@ -99,6 +96,7 @@ async def generate_io_report(symbol: str | None = None) -> str:
             avg = sum(vals) / len(vals)
             direction = "🔼" if avg > 0 else "🔻"
             txt += f"{tf} => %{abs(avg*100):.1f} {direction}\n"
+
         txt += "\n⚡ Coin Nakit Göçü Raporu\n"
         for sym, snap in snapshots.items():
             txt += f"{sym} Nakit:%{abs((snap['taker_ratio'] or 0)*100):.1f} "
@@ -112,12 +110,12 @@ async def generate_io_report(symbol: str | None = None) -> str:
         return txt
 
 
-# --- Handler ---
-async def io_handler(update: Update, context: CallbackContext):
+# --- Handler (senkron, asyncio.run ile) ---
+def io_handler(update: Update, context: CallbackContext):
     args = context.args
     symbol = args[0] if args else None
-    report = await generate_io_report(symbol)
-    await update.message.reply_text(report)
+    report = asyncio.run(generate_io_report(symbol))
+    update.message.reply_text(report)
 
 
 # Plugin loader uyumluluk
