@@ -3,32 +3,21 @@
 import asyncio
 from telegram import Update
 from telegram.ext import CommandHandler, CallbackContext
-
 from utils.binance_api import get_binance_api
 from utils.io_utils import build_multi_snapshot
 from utils.config import CONFIG
 
 
-# --- Helper: Trend oku üretimi (+, -, x) ---
 def trend_pattern(ratios: dict) -> str:
     pattern = []
-    for tf in ["15m", "1h", "4h", "12h", "1d"]:
+    for tf in CONFIG.IO.CASHFLOW_TIMEFRAMES.keys():
         val = ratios.get(tf, {}).get("taker_ratio")
-        if val is None:
-            pattern.append("x")
-        elif val > 0:
-            pattern.append("🔼")
-        elif val < 0:
-            pattern.append("🔻")
-        else:
-            pattern.append("x")
+        pattern.append("🔼" if val and val > 0 else "🔻" if val and val < 0 else "x")
     return "".join(pattern)
 
 
-# --- Ana rapor oluşturucu (async) ---
 async def generate_io_report(symbol: str | None = None) -> str:
     api = get_binance_api()
-
     symbols = [symbol.upper()] if symbol else ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT"]
 
     symbols_data = {}
@@ -38,18 +27,7 @@ async def generate_io_report(symbol: str | None = None) -> str:
         trades = await api.get_agg_trades(sym, limit=500)
         ticker = await api.get_24h_ticker(sym)
         funding = (await api.get_funding_rate(sym, limit=1))[0] if CONFIG.TA.FUNDING_RATE_ENABLED else {}
-        oi = None
-        liquidations = None
-
-        trades_fmt = [
-            {
-                "qty": float(t["q"]),
-                "price": float(t["p"]),
-                "isBuyerMaker": t["m"],
-                "ts": t["T"]
-            }
-            for t in trades
-        ]
+        trades_fmt = [{"qty": float(t["q"]), "price": float(t["p"]), "isBuyerMaker": t["m"], "ts": t["T"]} for t in trades]
 
         symbols_data[sym] = {
             "klines": kl,
@@ -57,49 +35,46 @@ async def generate_io_report(symbol: str | None = None) -> str:
             "trades": trades_fmt,
             "ticker": ticker,
             "funding": funding,
-            "oi": oi,
-            "liquidations": liquidations,
+            "oi": None,
+            "liquidations": None,
         }
 
     snapshots = build_multi_snapshot(symbols_data, with_cashflow=True)
 
-    if symbol:  # Tek coin raporu
+    if symbol:
         snap = snapshots[symbol.upper()]
         txt = f"⚡ {symbol.upper()} IO Raporu\n"
         txt += f"Kısa Vadeli Alım Gücü: {snap['taker_ratio']:.2f}X\n"
         txt += f"Marketteki Hacim Payı: %{float(snap['vwap_taker_ratio'] or 0)*100:.1f}\n\n"
         for tf, vals in snap.get("ratios", {}).items():
-            if vals["taker_ratio"] is None:
-                continue
-            direction = "🔼" if vals["taker_ratio"] > 0 else "🔻"
-            txt += f"{tf} => %{abs(vals['taker_ratio']*100):.1f} {direction}\n"
-        txt += "\n"
-        txt += f"{symbol.upper()} Nakit: %{abs((snap['taker_ratio'] or 0)*100):.1f} "
-        txt += f"15m:%{abs((snap['ratios']['15m']['taker_ratio'] or 0)*100):.1f} "
+            tr = vals.get("taker_ratio")
+            if tr is None: continue
+            direction = "🔼" if tr > 0 else "🔻"
+            txt += f"{tf} => %{abs(tr*100):.1f} {direction}\n"
+        txt += f"\n{symbol.upper()} Nakit: %{abs(snap['taker_ratio']*100):.1f} "
+        txt += f"15m:%{abs(snap['ratios']['15m']['taker_ratio']*100):.1f} "
         txt += f"Mts:{snap['mts_score']:.2f} "
         txt += trend_pattern(snap['ratios'])
         return txt
 
-    else:  # Market raporu
+    else:
         txt = "⚡ Market Nakit Raporu\n"
-        txt += "Marketteki Tüm Coinlere Olan Nakit Girişi Raporu.\n"
         all_ratios = [snap["taker_ratio"] for snap in snapshots.values() if snap["taker_ratio"]]
-        avg_ratio = sum(all_ratios) / len(all_ratios) if all_ratios else 0
-        txt += f"Kısa Vadeli Market Alım Gücü: {avg_ratio:.2f}X\n"
-        txt += f"Marketteki Hacim Payı:%{len(symbols)*10:.1f}\n\n"
-
+        avg_ratio = sum(all_ratios)/len(all_ratios) if all_ratios else 0
+        txt += f"Kısa Vadeli Market Alım Gücü: {avg_ratio:.2f}X\n\n"
         txt += "⚡ Market 5 zamana ait nakit yüzdesi\n"
-        for tf in ["15m", "1h", "4h", "12h", "1d"]:
-            vals = [snap["ratios"][tf]["taker_ratio"] for snap in snapshots.values() if snap["ratios"][tf]["taker_ratio"]]
-            if not vals:
-                continue
-            avg = sum(vals) / len(vals)
+        for tf in CONFIG.IO.CASHFLOW_TIMEFRAMES.keys():
+            vals = [snap["ratios"].get(tf, {}).get("taker_ratio") for snap in snapshots.values()]
+            vals = [v for v in vals if v is not None]
+            if not vals: continue
+            avg = sum(vals)/len(vals)
             direction = "🔼" if avg > 0 else "🔻"
             txt += f"{tf} => %{abs(avg*100):.1f} {direction}\n"
 
         txt += "\n⚡ Coin Nakit Göçü Raporu\n"
         for sym, snap in snapshots.items():
-            txt += f"{sym} Nakit:%{abs((snap['taker_ratio'] or 0)*100):.1f} "
+            tr = snap['taker_ratio'] or 0
+            txt += f"{sym} Nakit:%{abs(tr*100):.1f} "
             txt += f"15m:%{abs((snap['ratios']['15m']['taker_ratio'] or 0)*100):.1f} "
             txt += f"Mts:{snap['mts_score']:.2f} "
             txt += trend_pattern(snap['ratios'])
@@ -110,7 +85,6 @@ async def generate_io_report(symbol: str | None = None) -> str:
         return txt
 
 
-# --- Handler (senkron, asyncio.run ile) ---
 def io_handler(update: Update, context: CallbackContext):
     args = context.args
     symbol = args[0] if args else None
@@ -118,6 +92,5 @@ def io_handler(update: Update, context: CallbackContext):
     update.message.reply_text(report)
 
 
-# Plugin loader uyumluluk
 def register(app):
     app.add_handler(CommandHandler("io", io_handler))
