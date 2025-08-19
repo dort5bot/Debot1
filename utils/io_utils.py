@@ -1,16 +1,17 @@
 #io_utils.py
+
 import math
 import statistics
 import time
 from typing import Dict, Any, List, Optional
 
+from utils.config import CONFIG  # ✅ config entegre
 
 # ===============================
 # --- Yardımcı Hesaplamalar ---
 # ===============================
 
 def safe_mean(values: List[float]) -> Optional[float]:
-    """Boş listeye karşı güvenli mean"""
     try:
         return statistics.mean(values) if values else None
     except Exception:
@@ -18,9 +19,10 @@ def safe_mean(values: List[float]) -> Optional[float]:
 
 
 def calc_momentum(klines: List[List[Any]]) -> Optional[float]:
-    """RSI / momentum (14 period)"""
+    """RSI / momentum (config RSI_PERIOD)"""
     try:
-        close_prices = [float(k[4]) for k in klines[-14:]]
+        period = CONFIG.IO.RSI_PERIOD
+        close_prices = [float(k[4]) for k in klines[-period:]]
         if len(close_prices) < 2:
             return None
         gains = [max(0, close_prices[i] - close_prices[i-1]) for i in range(1, len(close_prices))]
@@ -34,7 +36,6 @@ def calc_momentum(klines: List[List[Any]]) -> Optional[float]:
 
 
 def calc_volatility(klines: List[List[Any]]) -> Optional[float]:
-    """Basit volatilite hesaplama (standart sapma)"""
     try:
         closes = [float(k[4]) for k in klines]
         return statistics.pstdev(closes) if closes else None
@@ -43,17 +44,20 @@ def calc_volatility(klines: List[List[Any]]) -> Optional[float]:
 
 
 def calc_obi(order_book: Dict[str, Any]) -> Optional[float]:
-    """Order Book Imbalance (OBI)"""
+    """Order Book Imbalance (config OBI_DEPTH ile sınırlı)"""
     try:
-        bids = sum(float(b[1]) for b in order_book.get("bids", []))
-        asks = sum(float(a[1]) for a in order_book.get("asks", []))
+        depth = CONFIG.IO.OBI_DEPTH
+        bids = sum(float(b[1]) for b in order_book.get("bids", [])[:depth])
+        asks = sum(float(a[1]) for a in order_book.get("asks", [])[:depth])
         return (bids - asks) / (bids + asks) if (bids + asks) > 0 else None
     except Exception:
         return None
 
 
-def calc_liquidity_layers(order_book: Dict[str, Any], price: float, pct_levels=[0.01, 0.02, 0.05]):
+def calc_liquidity_layers(order_book: Dict[str, Any], price: float, pct_levels=None):
     """Derinlikte likidite yoğunluğu"""
+    if pct_levels is None:
+        pct_levels = [0.01, 0.02, 0.05]
     layers = {}
     try:
         for p in pct_levels:
@@ -66,7 +70,6 @@ def calc_liquidity_layers(order_book: Dict[str, Any], price: float, pct_levels=[
 
 
 def calc_taker_ratio(trades: List[Dict[str, Any]]) -> Optional[float]:
-    """Aggressor taker oranı (buy-sell / total, hacim bazlı)"""
     try:
         buys = sum(float(t["qty"]) for t in trades if not t.get("isBuyerMaker"))
         sells = sum(float(t["qty"]) for t in trades if t.get("isBuyerMaker"))
@@ -77,7 +80,6 @@ def calc_taker_ratio(trades: List[Dict[str, Any]]) -> Optional[float]:
 
 
 def calc_vwap_taker_ratio(trades: List[Dict[str, Any]]) -> Optional[float]:
-    """VWAP tabanlı (fiyat*hacim ağırlıklı) taker oranı"""
     try:
         buy_notional = sum(float(t["qty"]) * float(t.get("price", 0)) for t in trades if not t.get("isBuyerMaker"))
         sell_notional = sum(float(t["qty"]) * float(t.get("price", 0)) for t in trades if t.get("isBuyerMaker"))
@@ -87,26 +89,23 @@ def calc_vwap_taker_ratio(trades: List[Dict[str, Any]]) -> Optional[float]:
         return None
 
 
-def normalize_funding(funding_rate: float, avg: float = 0.0001, std: float = 0.0005) -> Optional[float]:
-    """Funding z-score normalizasyon"""
+def normalize_funding(funding_rate: float) -> Optional[float]:
     try:
-        return (funding_rate - avg) / std if std != 0 else None
+        return (funding_rate - CONFIG.IO.FUNDING_AVG) / CONFIG.IO.FUNDING_STD if CONFIG.IO.FUNDING_STD != 0 else None
     except Exception:
         return None
 
 
-def normalize_oi(oi: Optional[float], baseline: float = 1e9) -> Optional[float]:
-    """Open Interest normalizasyon"""
+def normalize_oi(oi: Optional[float]) -> Optional[float]:
     try:
-        return oi / baseline if oi else None
+        return oi / CONFIG.IO.OI_BASELINE if oi else None
     except Exception:
         return None
 
 
-def normalize_liquidations(liquidations: Optional[float], baseline: float = 1e6) -> Optional[float]:
-    """Likidasyonlar için normalizasyon"""
+def normalize_liquidations(liquidations: Optional[float]) -> Optional[float]:
     try:
-        return liquidations / baseline if liquidations else None
+        return liquidations / CONFIG.IO.LIQUIDATION_BASELINE if liquidations else None
     except Exception:
         return None
 
@@ -115,18 +114,10 @@ def normalize_liquidations(liquidations: Optional[float], baseline: float = 1e6)
 # --- Çoklu Zaman Dilimi Cashflow ---
 # ===============================
 
-def calc_cashflow_ratios(
-    trades: List[Dict[str, Any]],
-    timeframes: Dict[str, int] = {"15m": 15, "1h": 60, "4h": 240, "12h": 720, "1d": 1440}
-) -> Dict[str, Dict[str, Optional[float]]]:
-    """
-    Çoklu zaman dilimleri için taker ratio hesaplar.
-    Hem normal ratio hem VWAP tabanlı ratio döndürür.
-    trades: [{"qty":float, "price":float, "isBuyerMaker":bool, "ts":epoch_ms}, ...]
-    """
+def calc_cashflow_ratios(trades: List[Dict[str, Any]]) -> Dict[str, Dict[str, Optional[float]]]:
     now = int(time.time() * 1000)
     ratios = {}
-    for label, minutes in timeframes.items():
+    for label, minutes in CONFIG.IO.CASHFLOW_TIMEFRAMES.items():
         cutoff = now - minutes * 60 * 1000
         sub_trades = [t for t in trades if t.get("ts", now) >= cutoff]
         ratios[label] = {
@@ -151,8 +142,6 @@ def build_io_snapshot(
     liquidations: Optional[float] = None,
     with_cashflow: bool = True
 ):
-    """IO verilerinden özet snapshot üretir"""
-    # --- Hesaplamalar ---
     momentum = calc_momentum(klines)
     volatility = calc_volatility(klines)
     obi = calc_obi(order_book)
@@ -164,7 +153,6 @@ def build_io_snapshot(
     oi_norm = normalize_oi(oi)
     liq_norm = normalize_liquidations(liquidations)
 
-    # --- Skorlar ---
     trend_score = safe_mean([
         (momentum / 100 if momentum is not None else 0),
         (funding_norm if funding_norm is not None else 0),
@@ -212,25 +200,7 @@ def build_io_snapshot(
 # --- Çoklu Sembol Snapshot ---
 # ===============================
 
-def build_multi_snapshot(
-    symbols_data: Dict[str, Dict[str, Any]],
-    with_cashflow: bool = True
-) -> Dict[str, Any]:
-    """
-    Çoklu sembol + çoklu timeframe snapshot üretir.
-    symbols_data: {
-        "BTCUSDT": {
-            "klines": [...],
-            "order_book": {...},
-            "trades": [...],
-            "ticker": {...},
-            "funding": {...},
-            "oi": 123456,
-            "liquidations": 1234
-        },
-        ...
-    }
-    """
+def build_multi_snapshot(symbols_data: Dict[str, Dict[str, Any]], with_cashflow: bool = True) -> Dict[str, Any]:
     result = {}
     for symbol, data in symbols_data.items():
         snapshot = build_io_snapshot(
@@ -246,4 +216,3 @@ def build_multi_snapshot(
         )
         result[symbol] = snapshot
     return result
-        
