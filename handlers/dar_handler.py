@@ -2,8 +2,7 @@
 # --------------------------------
 # /dar      -> Dosya ağacı (mesaj, uzun olursa TXT)
 # /dar Z    -> ZIP (tree.txt + içerikler, sadece listelenen dosyalar + .env + .gitignore)
-# ZIP içinde klasör yapısı korunur (ör. utils/ap_utils.py)
-# Dosya adı: Dbot_aygun_saatdakikasaniye.zip
+# /dar k    -> Botun komut listesi
 
 import os
 import zipfile
@@ -13,6 +12,22 @@ from telegram.ext import ContextTypes, CommandHandler
 
 ROOT_DIR = '.'
 TELEGRAM_MSG_LIMIT = 4000
+
+#--komut listesi---
+COMMAND_LIST = {
+    "/io": "In-Out Alış Satış Baskısı raporu",
+    "/nls": "Balina hareketleri ve yoğunluk (NLS analizi)",
+    "/npr": "Nakit Piyasa Raporu",
+    "/eft": "ETF & ABD piyasaları",
+    "/ap": "Altların Güç Endeksi (AP)",
+    "/p": "Anlık fiyat, 24h değişim, hacim bilgisi",
+    "/p_ekle": "Favori coin ekleme",
+    "/p_fav": "Favori coinleri listeleme",
+    "/p_sil": "Favori coin silme",
+    "/fr": "Funding Rate raporu + CSV kaydı",
+    "/whale": "Whale Alerts + CSV kaydı",
+    "/dar": "Dosya ağacı (Z=zip, k=komut listesi)",
+}
 
 #--dosya uzantısı -> dil eşlemesi---
 EXT_LANG_MAP = {
@@ -70,7 +85,6 @@ def format_tree(root_dir):
                 tree_lines.append(f"{prefix}{connector}{item}/")
                 walk(path, prefix + ("    " if i == len(items) - 1 else "│   "))
             else:
-                # gizli dosya kontrolü
                 if item.startswith(".") and item not in [".env", ".gitignore"]:
                     continue
                 ext = os.path.splitext(item)[1]
@@ -91,9 +105,7 @@ def format_tree(root_dir):
 def create_zip_with_tree_and_files(root_dir, zip_filename):
     tree_text, valid_files = format_tree(root_dir)
     with zipfile.ZipFile(zip_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-        # ağacı ekle
         zipf.writestr("tree.txt", tree_text)
-        # sadece ağaçta olan dosyaları ekle (klasör yapısıyla)
         for filepath in valid_files:
             arcname = os.path.relpath(filepath, root_dir)
             try:
@@ -106,6 +118,14 @@ def create_zip_with_tree_and_files(root_dir, zip_filename):
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     mode = args[0].upper() if args else ""
+
+    # k => komut listesi
+    if mode == "K":
+        text = "🤖 Bot Komut Listesi:\n\n"
+        for cmd, desc in COMMAND_LIST.items():
+            text += f"{cmd:<10} → {desc}\n"
+        await update.message.reply_text(f"<pre>{text}</pre>", parse_mode="HTML")
+        return
 
     tree_text, _ = format_tree(ROOT_DIR)
     timestamp = datetime.now().strftime("%m%d_%H%M%S")
