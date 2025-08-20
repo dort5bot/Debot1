@@ -1,30 +1,15 @@
 # utils/config.py
-#  Artık STREAM_SYMBOLS, STREAM_INTERVAL, PAPER_MODE, EVALUATOR_WINDOW, EVALUATOR_THRESHOLD tamamen config üzerinden okunuyor.
-#  Deploy sırasında hiçbir ImportError oluşmayacak.
-#  İleriye dönük olarak .env üzerinden bu değerleri değiştirmek yeterli.
-
-# utils/config.py
-# Bot başlatıldığında .env’den API Key ve Secret Key’i okur.
-# /apikey komutu ile runtime + kalıcı olarak güncelleme yapılabilir.
-# Yetkisiz kullanıcıların erişimi engellenir.
-# Yapı tamamen mevcut CONFIG ve handler sistemini bozmadan entegre olur.
-# Böylece hem güvenli hem de kalıcı bir API Key yönetimi sağlanmış olur.
-# BASE_URL: str = "https://api.binance.com/api/v3"        # spot REST
-# FAPI_URL: str = "https://fapi.binance.com/fapi/v1"      # futures REST  REVİZE
-   #BASE_URL: str = "https://api.binance.com/"        # spot REST
-   #FAPI_URL: str = "https://fapi.binance.com/"      # futures REST
-# utils/config.py
 # Konfigürasyon dosyası
 # - .env üzerinden tüm değerleri yükler
 # - CONFIG nesnesi altında gruplanmış halde kullanılabilir
 # - Binance, Bot, TA, System, IO, Telegram, Database modülleri ayrı dataclass ile yönetilir
 
-# utils/config.py
+from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict
-from dotenv import load_dotenv, set_key
+from dotenv import load_dotenv
 
 ENV_PATH = ".env"
 load_dotenv(ENV_PATH, override=True)
@@ -78,19 +63,24 @@ class TAConfig:
     FUNDING_RATE_ENABLED: bool = os.getenv("FUNDING_RATE_ENABLED", "true").lower() == "true"
     SOCIAL_SENTIMENT_ENABLED: bool = os.getenv("SOCIAL_SENTIMENT_ENABLED", "false").lower() == "true"
 
-# === TA Config -2 ==
+    # --- Advanced alpha_ta & analysis params ---
     ALPHA_LONG_THRESHOLD: float = float(os.getenv("ALPHA_LONG_THRESHOLD", 0.6))
     ALPHA_SHORT_THRESHOLD: float = float(os.getenv("ALPHA_SHORT_THRESHOLD", -0.6))
+
     KALMAN_Q: float = float(os.getenv("KALMAN_Q", 1e-5))
     KALMAN_R: float = float(os.getenv("KALMAN_R", 1e-2))
+
     REGIME_WINDOW: int = int(os.getenv("REGIME_WINDOW", 80))
     ENTROPY_M: int = int(os.getenv("ENTROPY_M", 3))
     ENTROPY_R_FACTOR: float = float(os.getenv("ENTROPY_R_FACTOR", 0.2))
     LEADLAG_MAX_LAG: int = int(os.getenv("LEADLAG_MAX_LAG", 10))
 
-
-
-
+    # alpha_ta ağırlıkları
+    W_KALMAN: float = float(os.getenv("W_KALMAN", 0.20))
+    W_HILBERT: float = float(os.getenv("W_HILBERT", 0.20))
+    W_ENTROPY: float = float(os.getenv("W_ENTROPY", 0.20))
+    W_REGIME: float = float(os.getenv("W_REGIME", 0.20))
+    W_LEADLAG: float = float(os.getenv("W_LEADLAG", 0.20))
 
 # === System Config ===
 @dataclass
