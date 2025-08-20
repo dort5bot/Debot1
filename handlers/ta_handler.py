@@ -16,7 +16,7 @@ from utils.ta_utils import alpha_signal, scan_market
 async def fetch_ohlcv(symbol: str, hours: int = 4, interval: str = "1h") -> pd.DataFrame:
     client = get_binance_api()
     # daha güvenli pencere (indikatörler için yeterli veri)
-    limit = hours * 3
+    limit = max(hours * 3, 200)  # en az 200 bar çek
     kl = await client.get_klines(symbol, interval=interval, limit=limit)
 
     df = pd.DataFrame(
