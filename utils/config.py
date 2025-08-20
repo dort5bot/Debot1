@@ -78,6 +78,20 @@ class TAConfig:
     FUNDING_RATE_ENABLED: bool = os.getenv("FUNDING_RATE_ENABLED", "true").lower() == "true"
     SOCIAL_SENTIMENT_ENABLED: bool = os.getenv("SOCIAL_SENTIMENT_ENABLED", "false").lower() == "true"
 
+# === TA Config -2 ==
+    ALPHA_LONG_THRESHOLD: float = float(os.getenv("ALPHA_LONG_THRESHOLD", 0.6))
+    ALPHA_SHORT_THRESHOLD: float = float(os.getenv("ALPHA_SHORT_THRESHOLD", -0.6))
+    KALMAN_Q: float = float(os.getenv("KALMAN_Q", 1e-5))
+    KALMAN_R: float = float(os.getenv("KALMAN_R", 1e-2))
+    REGIME_WINDOW: int = int(os.getenv("REGIME_WINDOW", 80))
+    ENTROPY_M: int = int(os.getenv("ENTROPY_M", 3))
+    ENTROPY_R_FACTOR: float = float(os.getenv("ENTROPY_R_FACTOR", 0.2))
+    LEADLAG_MAX_LAG: int = int(os.getenv("LEADLAG_MAX_LAG", 10))
+
+
+
+
+
 # === System Config ===
 @dataclass
 class SystemConfig:
