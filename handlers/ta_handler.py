@@ -55,7 +55,7 @@ def ta_handler(update: Update, context: CallbackContext) -> None:
             # ---------------------------------
             if len(args) == 0 or (len(args) == 1 and (args[0].lower() == "all" or args[0].isdigit())):
                 mode = "config"
-                symbols = CONFIG.BINANCE.TOP_SYMBOLS_FOR_IO
+                symbols = CONFIG.BINANCE.SCAN_SYMBOLS
 
                 # full scan
                 if len(args) == 1 and args[0].lower() == "all":
