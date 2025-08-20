@@ -27,6 +27,10 @@ class BinanceConfig:
     TOP_SYMBOLS_FOR_IO: List[str] = field(
         default_factory=lambda: os.getenv("TOP_SYMBOLS_FOR_IO", "BTCUSDT,ETHUSDT").split(",")
     )
+    # 🔴 Ta_utils tarama listesi
+    SCAN_SYMBOLS: List[str] = field(
+        default_factory=lambda: os.getenv("SCAN_SYMBOLS", "BTCUSDT,ETHUSDT").split(",")
+    )
     IO_CONCURRENCY: int = int(os.getenv("IO_CONCURRENCY", 5))
     BINANCE_TICKER_TTL: int = int(os.getenv("BINANCE_TICKER_TTL", 5))
     STREAM_INTERVAL: str = os.getenv("STREAM_INTERVAL", "1m")
