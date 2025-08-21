@@ -1,3 +1,4 @@
+
 # handlers/dar_handler.py
 # --------------------------------
 # /dar      -> Dosya ağacı (mesaj, uzun olursa TXT)
@@ -5,6 +6,7 @@
 # /dar k    -> Botun komut listesi
 # kaynak info
 import os
+import re
 import zipfile
 from datetime import datetime
 from telegram import Update
@@ -103,15 +105,37 @@ def create_zip_with_tree_and_files(root_dir, zip_filename):
                 pass
     return zip_filename
 
+#--handlers içinden komutları tara---
+def scan_handlers_for_commands():
+    commands = {}
+    handler_dir = os.path.join(ROOT_DIR, "handlers")
+    pattern = re.compile(r'CommandHandler\(\s*["\'](\w+)["\']')
+
+    for fname in os.listdir(handler_dir):
+        if not fname.endswith("_handler.py"):
+            continue
+        fpath = os.path.join(handler_dir, fname)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                content = f.read()
+            matches = pattern.findall(content)
+            for cmd in matches:
+                desc = COMMAND_INFO.get(cmd, "(?)")
+                commands[f"/{cmd}"] = f"{desc} ({fname})"
+        except Exception:
+            continue
+    return commands
+
 #--dar komutu handler---
 async def dar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     mode = args[0].lower() if args else ""
 
-    # ✅ /dar k komutu → command_info listesini döner
+    # ✅ /dar k komutu → otomatik komut listesi
     if mode == "k":
-        lines = [f"/{cmd} → {desc}" for cmd, desc in COMMAND_INFO.items()]
-        text = "\n".join(lines)
+        scanned = scan_handlers_for_commands()
+        lines = [f"{cmd} → {desc}" for cmd, desc in scanned.items()]
+        text = "\n".join(lines) if lines else "Komut bulunamadı."
         await update.message.reply_text(f"<pre>{text}</pre>", parse_mode="HTML")
         return
 
