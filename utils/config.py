@@ -29,7 +29,7 @@ class BinanceConfig:
     )
     # 🔴 Ta_utils tarama listesi
     SCAN_SYMBOLS: List[str] = field(
-        default_factory=lambda: os.getenv("SCAN_SYMBOLS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,TRXUSDT,CAKEUSDT,SUİUSDT,PEPEUSDT,SUSDT,ARPAUSDT,TURBOUSDT").split(",")
+        default_factory=lambda: os.getenv("SCAN_SYMBOLS", "BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,TRXUSDT,CAKEUSDT,SUIUSDT,PEPEUSDT,ARPAUSDT,TURBOUSDT").split(",")
     )
     IO_CONCURRENCY: int = int(os.getenv("IO_CONCURRENCY", 5))
     BINANCE_TICKER_TTL: int = int(os.getenv("BINANCE_TICKER_TTL", 5))
